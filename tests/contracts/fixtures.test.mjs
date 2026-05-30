@@ -107,5 +107,61 @@ test("OpenAPI exposes the first control-plane resource surface", async () => {
   for (const route of expectedPaths) {
     assert.ok(openapi.paths[route], `${route} must be present`);
   }
+  assert.ok(openapi.paths["/usage/events"].get, "usage read surface must be present");
+  assert.ok(openapi.paths["/usage/events"].post, "usage ingest surface must be present");
   assert.equal(openapi.info.version, "0.1.0");
+});
+
+test("runtime events use the canonical event envelope and required correlation chain", async () => {
+  const usage = await readJson("contracts/fixtures/usage-event.gateway-request.json");
+  const audit = await readJson("contracts/fixtures/audit-event.policy-denied.json");
+
+  for (const event of [usage, audit]) {
+    assert.match(event.id, /^evt_/);
+    assert.equal(typeof event.type, "string");
+    assert.equal(event.version, "0.1.0");
+    assert.match(event.correlation_id, /^corr_/);
+    assert.match(event.request_id, /^req_/);
+    assert.match(event.policy_decision_id, /^poldec_/);
+    assert.equal(typeof event.payload, "object");
+    assert.ok(!Object.hasOwn(event, "event_id"), "event_id must not replace canonical id");
+    assert.ok(!Object.hasOwn(event, "schema_version"), "event envelopes use version, not schema_version");
+  }
+});
+
+test("policy decisions require provenance and audit correlation fields", async () => {
+  const schema = await readJson("contracts/schemas/policy-decision.schema.json");
+  const required = new Set(schema.required);
+
+  for (const field of [
+    "policy_version",
+    "policy_snapshot_id",
+    "reason_code",
+    "correlation_id",
+    "request_id",
+    "provenance"
+  ]) {
+    assert.ok(required.has(field), `policy decision must require ${field}`);
+  }
+});
+
+test("comment writes derive Working Group scope from the issue path", async () => {
+  const openapi = await readJson("contracts/openapi/taskotter-control-plane.openapi.json");
+  const requestSchema = openapi.components.schemas.CreateCommentRequest;
+  const post = openapi.paths["/issues/{issue_id}/comments"].post;
+
+  assert.deepEqual(requestSchema.required, ["body"]);
+  assert.ok(!Object.hasOwn(requestSchema.properties, "working_group_id"));
+  assert.match(post.description, /derives the Working Group from the issue resource/);
+  assert.ok(post.responses["409"], "WG mismatch rejection response must be documented");
+});
+
+test("error details are restricted to a safe allowlist", async () => {
+  const openapi = await readJson("contracts/openapi/taskotter-control-plane.openapi.json");
+  const details = openapi.components.schemas.ErrorEnvelope.properties.error.properties.details;
+  const allowedKeys = Object.keys(details.items.properties).sort();
+
+  assert.equal(details.items.additionalProperties, false);
+  assert.deepEqual(allowedKeys, ["code", "field", "message", "redacted"]);
+  assert.match(details.description, /Do not include request bodies, credentials/);
 });

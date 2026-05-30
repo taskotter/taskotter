@@ -177,9 +177,14 @@ async function main() {
   const schemaExports = [];
   for (const fileName of schemaFileNames) {
     const schema = await readJson(`contracts/schemas/${fileName}`);
-    const versionConst = schema.properties?.schema_version?.const;
-    if (!versionConst || !/@\d+\.\d+\.\d+$/.test(versionConst)) {
-      throw new Error(`${fileName} must declare a schema_version const ending with @x.y.z`);
+    const schemaVersionConst = schema.properties?.schema_version?.const;
+    const envelopeVersionConst = schema.properties?.version?.const;
+    const hasVersionedSchema =
+      (schemaVersionConst && /@\d+\.\d+\.\d+$/.test(schemaVersionConst)) ||
+      (envelopeVersionConst && /^\d+\.\d+\.\d+$/.test(envelopeVersionConst)) ||
+      fileName === "event-envelope.schema.json";
+    if (!hasVersionedSchema) {
+      throw new Error(`${fileName} must declare schema_version @x.y.z, envelope version x.y.z, or be the generic event envelope`);
     }
 
     await writeGenerated(`packages/schemas/json/${fileName}`, stableJson(schema));

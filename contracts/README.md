@@ -20,7 +20,10 @@ Use `npm run contracts:check` in CI to verify generated artifacts are reproducib
 
 - OpenAPI: `0.1.0`, served under `/api/v1`.
 - Policy decision fixture: `policy-decision@0.1.0`.
-- Usage event fixture: `usage-event@0.1.0`.
-- Audit event fixture: `audit-event@0.1.0`.
+- Event envelope: `0.1.0`, using canonical `id`, `type`, `version`, `occurred_at`, `resource`, and `payload` fields.
+- Usage event fixture: `usage.gateway_request.recorded` payload version `0.1.0`.
+- Audit event fixture: `audit.policy_decision.denied` payload version `0.1.0`.
 
 Runner and gateway consumers should reject unsupported major versions and tolerate unknown additive fields for compatible minor versions.
+
+Policy decisions, usage events, and audit events carry `correlation_id` and `request_id` so a user request, policy decision, runtime event, and audit record can be reconstructed as one chain. Usage and audit event payloads are nested under the common event envelope.

@@ -211,7 +211,8 @@
                 "$ref": "#/components/schemas/CreateCommentRequest"
               }
             }
-          }
+          },
+          "description": "Comment body only; Working Group scope is derived from issue_id to avoid confused-deputy writes."
         },
         "responses": {
           "201": {
@@ -224,10 +225,31 @@
               }
             }
           },
+          "403": {
+            "description": "Authenticated actor is not authorized for the issue Working Group scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Issue/comment Working Group scope mismatch rejected.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          },
           "default": {
             "$ref": "#/components/responses/Error"
           }
-        }
+        },
+        "description": "Creates a comment under the issue identified by path issue_id. The server derives the Working Group from the issue resource and must reject any attempted Working Group mismatch with 403 or 409."
       }
     },
     "/agents": {
@@ -430,6 +452,39 @@
         "responses": {
           "202": {
             "description": "Usage event accepted."
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "get": {
+        "operationId": "listUsageEvents",
+        "summary": "Read usage events for a Working Group.",
+        "tags": [
+          "Usage"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkingGroupId"
+          },
+          {
+            "$ref": "#/components/parameters/PageCursor"
+          },
+          {
+            "$ref": "#/components/parameters/PageLimit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Usage events page.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageEventListResponse"
+                }
+              }
+            }
           },
           "default": {
             "$ref": "#/components/responses/Error"
@@ -879,19 +934,16 @@
       "CreateCommentRequest": {
         "type": "object",
         "required": [
-          "working_group_id",
           "body"
         ],
         "additionalProperties": false,
         "properties": {
-          "working_group_id": {
-            "$ref": "#/components/schemas/WorkingGroupId"
-          },
           "body": {
             "type": "string",
             "minLength": 1
           }
-        }
+        },
+        "description": "Comment create payload. Working Group scope is derived from the issue_id path parameter; clients must not provide working_group_id in this body."
       },
       "ErrorEnvelope": {
         "type": "object",
@@ -920,8 +972,26 @@
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "additionalProperties": true
-                }
+                  "required": [
+                    "code"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "field": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "redacted": {
+                      "type": "boolean"
+                    }
+                  }
+                },
+                "description": "Safe, allowlisted diagnostic details. Do not include request bodies, credentials, provider payloads, stack traces, or other private values."
               },
               "request_id": {
                 "type": "string"
@@ -1176,6 +1246,31 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AuditEvent"
+            }
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageInfo"
+          }
+        }
+      },
+      "UsageEventListResponse": {
+        "$ref": "#/components/schemas/UsageEventPage"
+      },
+      "UsageEventPage": {
+        "$ref": "#/components/schemas/PageOfUsageEvent"
+      },
+      "PageOfUsageEvent": {
+        "type": "object",
+        "required": [
+          "data",
+          "page"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsageEvent"
             }
           },
           "page": {

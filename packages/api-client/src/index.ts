@@ -78,6 +78,14 @@ export const controlPlaneContract = {
       ]
     },
     {
+      "operationId": "listUsageEvents",
+      "method": "GET",
+      "path": "/usage/events",
+      "tags": [
+        "Usage"
+      ]
+    },
+    {
       "operationId": "listUsers",
       "method": "GET",
       "path": "/users",
@@ -183,6 +191,10 @@ export class TaskOtterClient {
 
   listSkills(options: TaskOtterRequestOptions = {}) {
     return this.request("GET", "/skills", options);
+  }
+
+  listUsageEvents(options: TaskOtterRequestOptions = {}) {
+    return this.request("GET", "/usage/events", options);
   }
 
   listUsers(options: TaskOtterRequestOptions = {}) {

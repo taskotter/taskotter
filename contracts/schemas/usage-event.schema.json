@@ -4,26 +4,35 @@
   "title": "TaskOtterUsageEvent",
   "type": "object",
   "required": [
-    "schema_version",
-    "event_id",
-    "working_group_id",
-    "source",
+    "id",
+    "type",
+    "version",
     "occurred_at",
-    "subject",
-    "measurements"
+    "source",
+    "working_group_id",
+    "actor",
+    "resource",
+    "correlation_id",
+    "request_id",
+    "policy_decision_id",
+    "idempotency_key",
+    "payload"
   ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": {
-      "const": "usage-event@0.1.0"
-    },
-    "event_id": {
+    "id": {
       "type": "string",
-      "pattern": "^usevt_[0-9A-HJKMNP-TV-Z]{26}$"
+      "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
     },
-    "working_group_id": {
+    "type": {
+      "const": "usage.gateway_request.recorded"
+    },
+    "version": {
+      "const": "0.1.0"
+    },
+    "occurred_at": {
       "type": "string",
-      "pattern": "^wg_[0-9A-HJKMNP-TV-Z]{26}$"
+      "format": "date-time"
     },
     "source": {
       "type": "string",
@@ -33,11 +42,94 @@
         "gateway"
       ]
     },
-    "occurred_at": {
+    "working_group_id": {
       "type": "string",
-      "format": "date-time"
+      "pattern": "^wg_[0-9A-HJKMNP-TV-Z]{26}$"
     },
-    "subject": {
+    "actor": {
+      "$ref": "#/$defs/actorRef"
+    },
+    "resource": {
+      "$ref": "#/$defs/resourceRef"
+    },
+    "correlation_id": {
+      "type": "string",
+      "pattern": "^corr_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "policy_decision_id": {
+      "type": "string",
+      "pattern": "^poldec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "subject",
+        "measurements"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "subject": {
+          "type": "object",
+          "required": [
+            "type",
+            "id"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "agent_run",
+                "gateway_request",
+                "workflow_run"
+              ]
+            },
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "measurements": {
+          "type": "object",
+          "required": [
+            "duration_ms"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "duration_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "input_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "output_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "tool_invocations": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "estimated_cost_micros": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "actorRef": {
       "type": "object",
       "required": [
         "type",
@@ -48,9 +140,9 @@
         "type": {
           "type": "string",
           "enum": [
-            "agent_run",
-            "gateway_request",
-            "workflow_run"
+            "user",
+            "agent",
+            "service"
           ]
         },
         "id": {
@@ -58,40 +150,21 @@
         }
       }
     },
-    "measurements": {
+    "resourceRef": {
       "type": "object",
       "required": [
-        "duration_ms"
+        "type",
+        "id"
       ],
       "additionalProperties": false,
       "properties": {
-        "duration_ms": {
-          "type": "integer",
-          "minimum": 0
+        "type": {
+          "type": "string"
         },
-        "input_tokens": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "output_tokens": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "tool_invocations": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "estimated_cost_micros": {
-          "type": "integer",
-          "minimum": 0
+        "id": {
+          "type": "string"
         }
       }
-    },
-    "policy_decision_id": {
-      "type": "string"
-    },
-    "idempotency_key": {
-      "type": "string"
     }
   }
 }

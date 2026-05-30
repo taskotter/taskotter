@@ -6,23 +6,42 @@ export const AuditEventSchema = {
   "title": "TaskOtterAuditEvent",
   "type": "object",
   "required": [
-    "schema_version",
-    "event_id",
+    "id",
+    "type",
+    "version",
+    "occurred_at",
+    "source",
     "working_group_id",
     "actor",
-    "action",
     "resource",
-    "outcome",
-    "occurred_at"
+    "correlation_id",
+    "request_id",
+    "policy_decision_id",
+    "payload"
   ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": {
-      "const": "audit-event@0.1.0"
-    },
-    "event_id": {
+    "id": {
       "type": "string",
-      "pattern": "^aud_[0-9A-HJKMNP-TV-Z]{26}$"
+      "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "type": {
+      "const": "audit.policy_decision.denied"
+    },
+    "version": {
+      "const": "0.1.0"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "control_plane",
+        "runner",
+        "gateway"
+      ]
     },
     "working_group_id": {
       "type": "string",
@@ -31,30 +50,156 @@ export const AuditEventSchema = {
     "actor": {
       "$ref": "#/$defs/actorRef"
     },
-    "action": {
-      "type": "string"
-    },
     "resource": {
       "$ref": "#/$defs/resourceRef"
     },
-    "outcome": {
+    "correlation_id": {
       "type": "string",
-      "enum": [
-        "allowed",
-        "denied",
-        "succeeded",
-        "failed"
-      ]
+      "pattern": "^corr_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "policy_decision_id": {
+      "type": "string",
+      "pattern": "^poldec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "action",
+        "outcome"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "allowed",
+            "denied",
+            "succeeded",
+            "failed"
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "actorRef": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "user",
+            "agent",
+            "service"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "resourceRef": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    }
+  }
+} as const;
+
+export const EventEnvelopeSchema = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.taskotter.dev/event-envelope.schema.json",
+  "title": "TaskOtterEventEnvelope",
+  "type": "object",
+  "required": [
+    "id",
+    "type",
+    "version",
+    "occurred_at",
+    "source",
+    "working_group_id",
+    "actor",
+    "resource",
+    "correlation_id",
+    "request_id",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "type": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9_]+)+$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
     },
     "occurred_at": {
       "type": "string",
       "format": "date-time"
     },
+    "source": {
+      "type": "string",
+      "enum": [
+        "control_plane",
+        "runner",
+        "gateway"
+      ]
+    },
+    "working_group_id": {
+      "type": "string",
+      "pattern": "^wg_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "actor": {
+      "$ref": "#/$defs/actorRef"
+    },
+    "resource": {
+      "$ref": "#/$defs/resourceRef"
+    },
+    "correlation_id": {
+      "type": "string",
+      "pattern": "^corr_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
     "request_id": {
+      "type": "string",
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "idempotency_key": {
       "type": "string"
     },
     "policy_decision_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^poldec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "payload": {
+      "type": "object"
     }
   },
   "$defs": {
@@ -111,6 +256,12 @@ export const PolicyDecisionSchema = {
     "action",
     "resource",
     "effect",
+    "policy_version",
+    "policy_snapshot_id",
+    "reason_code",
+    "correlation_id",
+    "request_id",
+    "provenance",
     "evaluated_at",
     "ttl_seconds",
     "constraints"
@@ -148,8 +299,50 @@ export const PolicyDecisionSchema = {
         "deny"
       ]
     },
+    "policy_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "policy_snapshot_id": {
+      "type": "string",
+      "pattern": "^polsnap_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
     "reason_code": {
       "type": "string"
+    },
+    "correlation_id": {
+      "type": "string",
+      "pattern": "^corr_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "provenance": {
+      "type": "object",
+      "required": [
+        "source",
+        "evaluated_by",
+        "policy_bundle_ref"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": [
+            "control_plane"
+          ]
+        },
+        "evaluated_by": {
+          "type": "string",
+          "enum": [
+            "policy_engine"
+          ]
+        },
+        "policy_bundle_ref": {
+          "type": "string"
+        }
+      }
     },
     "evaluated_at": {
       "type": "string",
@@ -242,26 +435,35 @@ export const UsageEventSchema = {
   "title": "TaskOtterUsageEvent",
   "type": "object",
   "required": [
-    "schema_version",
-    "event_id",
-    "working_group_id",
-    "source",
+    "id",
+    "type",
+    "version",
     "occurred_at",
-    "subject",
-    "measurements"
+    "source",
+    "working_group_id",
+    "actor",
+    "resource",
+    "correlation_id",
+    "request_id",
+    "policy_decision_id",
+    "idempotency_key",
+    "payload"
   ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": {
-      "const": "usage-event@0.1.0"
-    },
-    "event_id": {
+    "id": {
       "type": "string",
-      "pattern": "^usevt_[0-9A-HJKMNP-TV-Z]{26}$"
+      "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
     },
-    "working_group_id": {
+    "type": {
+      "const": "usage.gateway_request.recorded"
+    },
+    "version": {
+      "const": "0.1.0"
+    },
+    "occurred_at": {
       "type": "string",
-      "pattern": "^wg_[0-9A-HJKMNP-TV-Z]{26}$"
+      "format": "date-time"
     },
     "source": {
       "type": "string",
@@ -271,11 +473,94 @@ export const UsageEventSchema = {
         "gateway"
       ]
     },
-    "occurred_at": {
+    "working_group_id": {
       "type": "string",
-      "format": "date-time"
+      "pattern": "^wg_[0-9A-HJKMNP-TV-Z]{26}$"
     },
-    "subject": {
+    "actor": {
+      "$ref": "#/$defs/actorRef"
+    },
+    "resource": {
+      "$ref": "#/$defs/resourceRef"
+    },
+    "correlation_id": {
+      "type": "string",
+      "pattern": "^corr_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "policy_decision_id": {
+      "type": "string",
+      "pattern": "^poldec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "subject",
+        "measurements"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "subject": {
+          "type": "object",
+          "required": [
+            "type",
+            "id"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "agent_run",
+                "gateway_request",
+                "workflow_run"
+              ]
+            },
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "measurements": {
+          "type": "object",
+          "required": [
+            "duration_ms"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "duration_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "input_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "output_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "tool_invocations": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "estimated_cost_micros": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "actorRef": {
       "type": "object",
       "required": [
         "type",
@@ -286,9 +571,9 @@ export const UsageEventSchema = {
         "type": {
           "type": "string",
           "enum": [
-            "agent_run",
-            "gateway_request",
-            "workflow_run"
+            "user",
+            "agent",
+            "service"
           ]
         },
         "id": {
@@ -296,40 +581,21 @@ export const UsageEventSchema = {
         }
       }
     },
-    "measurements": {
+    "resourceRef": {
       "type": "object",
       "required": [
-        "duration_ms"
+        "type",
+        "id"
       ],
       "additionalProperties": false,
       "properties": {
-        "duration_ms": {
-          "type": "integer",
-          "minimum": 0
+        "type": {
+          "type": "string"
         },
-        "input_tokens": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "output_tokens": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "tool_invocations": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "estimated_cost_micros": {
-          "type": "integer",
-          "minimum": 0
+        "id": {
+          "type": "string"
         }
       }
-    },
-    "policy_decision_id": {
-      "type": "string"
-    },
-    "idempotency_key": {
-      "type": "string"
     }
   }
 } as const;
@@ -420,6 +686,7 @@ export const WorkflowDefinitionSchema = {
 
 export const contractSchemas = {
   "audit-event.schema.json": AuditEventSchema,
+  "event-envelope.schema.json": EventEnvelopeSchema,
   "policy-decision.schema.json": PolicyDecisionSchema,
   "usage-event.schema.json": UsageEventSchema,
   "workflow-definition.schema.json": WorkflowDefinitionSchema

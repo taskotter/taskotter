@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://contracts.taskotter.dev/audit-event.schema.json",
-  "title": "TaskOtterAuditEvent",
+  "$id": "https://contracts.taskotter.dev/event-envelope.schema.json",
+  "title": "TaskOtterEventEnvelope",
   "type": "object",
   "required": [
     "id",
@@ -14,7 +14,6 @@
     "resource",
     "correlation_id",
     "request_id",
-    "policy_decision_id",
     "payload"
   ],
   "additionalProperties": false,
@@ -24,10 +23,12 @@
       "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
     },
     "type": {
-      "const": "audit.policy_decision.denied"
+      "type": "string",
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9_]+)+$"
     },
     "version": {
-      "const": "0.1.0"
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
     },
     "occurred_at": {
       "type": "string",
@@ -59,31 +60,15 @@
       "type": "string",
       "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$"
     },
+    "idempotency_key": {
+      "type": "string"
+    },
     "policy_decision_id": {
       "type": "string",
       "pattern": "^poldec_[0-9A-HJKMNP-TV-Z]{26}$"
     },
     "payload": {
-      "type": "object",
-      "required": [
-        "action",
-        "outcome"
-      ],
-      "additionalProperties": false,
-      "properties": {
-        "action": {
-          "type": "string"
-        },
-        "outcome": {
-          "type": "string",
-          "enum": [
-            "allowed",
-            "denied",
-            "succeeded",
-            "failed"
-          ]
-        }
-      }
+      "type": "object"
     }
   },
   "$defs": {

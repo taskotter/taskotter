@@ -4,23 +4,42 @@
   "title": "TaskOtterAuditEvent",
   "type": "object",
   "required": [
-    "schema_version",
-    "event_id",
+    "id",
+    "type",
+    "version",
+    "occurred_at",
+    "source",
     "working_group_id",
     "actor",
-    "action",
     "resource",
-    "outcome",
-    "occurred_at"
+    "correlation_id",
+    "request_id",
+    "policy_decision_id",
+    "payload"
   ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": {
-      "const": "audit-event@0.1.0"
-    },
-    "event_id": {
+    "id": {
       "type": "string",
-      "pattern": "^aud_[0-9A-HJKMNP-TV-Z]{26}$"
+      "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "type": {
+      "const": "audit.policy_decision.denied"
+    },
+    "version": {
+      "const": "0.1.0"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "control_plane",
+        "runner",
+        "gateway"
+      ]
     },
     "working_group_id": {
       "type": "string",
@@ -29,30 +48,42 @@
     "actor": {
       "$ref": "#/$defs/actorRef"
     },
-    "action": {
-      "type": "string"
-    },
     "resource": {
       "$ref": "#/$defs/resourceRef"
     },
-    "outcome": {
+    "correlation_id": {
       "type": "string",
-      "enum": [
-        "allowed",
-        "denied",
-        "succeeded",
-        "failed"
-      ]
-    },
-    "occurred_at": {
-      "type": "string",
-      "format": "date-time"
+      "pattern": "^corr_[0-9A-HJKMNP-TV-Z]{26}$"
     },
     "request_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$"
     },
     "policy_decision_id": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^poldec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "action",
+        "outcome"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "allowed",
+            "denied",
+            "succeeded",
+            "failed"
+          ]
+        }
+      }
     }
   },
   "$defs": {
