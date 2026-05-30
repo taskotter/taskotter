@@ -1,0 +1,9 @@
+[workspace]
+resolver = "3"
+members = ["services/api"]
+
+[workspace.package]
+edition = "2024"
+license = "PolyForm-Strict-1.0.0"
+repository = "https://github.com/taskotter/taskotter"
+

@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.taskotter.dev/v1/common.schema.json",
+  "title": "TaskOtterCommon",
+  "$defs": {
+    "action": {
+      "type": "string",
+      "enum": ["read", "write", "manage", "admin", "execute", "dispatch", "approve"]
+    },
+    "principal": {
+      "type": "object",
+      "required": ["kind", "id", "working_group_id"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["user", "agent", "service"]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "working_group_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "required": ["kind", "id", "working_group_id"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "working_group",
+            "issue",
+            "comment",
+            "chat",
+            "agent",
+            "skill",
+            "integration",
+            "provider",
+            "workflow",
+            "runner",
+            "gateway"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "working_group_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner_id": {
+          "type": ["string", "null"]
+        }
+      }
+    }
+  }
+}
+
