@@ -25,16 +25,9 @@
   "evaluated_at": "2026-01-01T00:00:00.000Z",
   "ttl_seconds": 300,
   "constraints": {
-    "network_zones": [
-      "default"
-    ],
-    "tool_scopes": [
-      "repo:read",
-      "repo:write"
-    ],
-    "provider_model_ids": [
-      "model_default"
-    ],
+    "network_zones": ["default"],
+    "tool_scopes": ["repo:read", "repo:write"],
+    "provider_model_ids": ["model_default"],
     "max_runtime_seconds": 1800
   }
 }

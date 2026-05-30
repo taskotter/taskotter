@@ -15,7 +15,10 @@ function validate(schema, value, location = schema.title ?? "value") {
     assert.equal(value, schema.const, `${location} const mismatch`);
   }
   if (schema.enum) {
-    assert.ok(schema.enum.includes(value), `${location} must be one of ${schema.enum.join(", ")}`);
+    assert.ok(
+      schema.enum.includes(value),
+      `${location} must be one of ${schema.enum.join(", ")}`,
+    );
   }
   if (schema.type) {
     if (schema.type === "object") {
@@ -25,31 +28,64 @@ function validate(schema, value, location = schema.title ?? "value") {
     } else if (schema.type === "array") {
       assert.ok(Array.isArray(value), `${location} must be array`);
     } else if (schema.type === "integer") {
-      assert.equal(Number.isInteger(value), true, `${location} must be integer`);
+      assert.equal(
+        Number.isInteger(value),
+        true,
+        `${location} must be integer`,
+      );
     } else {
-      assert.equal(typeof value, schema.type, `${location} must be ${schema.type}`);
+      assert.equal(
+        typeof value,
+        schema.type,
+        `${location} must be ${schema.type}`,
+      );
     }
   }
   if (schema.pattern && typeof value === "string") {
-    assert.match(value, new RegExp(schema.pattern), `${location} pattern mismatch`);
+    assert.match(
+      value,
+      new RegExp(schema.pattern),
+      `${location} pattern mismatch`,
+    );
   }
   if (schema.required) {
     for (const key of schema.required) {
       assert.ok(Object.hasOwn(value, key), `${location}.${key} is required`);
     }
   }
-  if (schema.additionalProperties === false && schema.properties && value && typeof value === "object" && !Array.isArray(value)) {
+  if (
+    schema.additionalProperties === false &&
+    schema.properties &&
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  ) {
     for (const key of Object.keys(value)) {
-      assert.ok(Object.hasOwn(schema.properties, key), `${location}.${key} is not allowed`);
+      assert.ok(
+        Object.hasOwn(schema.properties, key),
+        `${location}.${key} is not allowed`,
+      );
     }
   }
-  if (schema.properties && value && typeof value === "object" && !Array.isArray(value)) {
+  if (
+    schema.properties &&
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  ) {
     for (const [key, childSchema] of Object.entries(schema.properties)) {
-      if (Object.hasOwn(value, key)) validate(resolveRef(schema, childSchema), value[key], `${location}.${key}`);
+      if (Object.hasOwn(value, key))
+        validate(
+          resolveRef(schema, childSchema),
+          value[key],
+          `${location}.${key}`,
+        );
     }
   }
   if (schema.items && Array.isArray(value)) {
-    value.forEach((item, index) => validate(resolveRef(schema, schema.items), item, `${location}[${index}]`));
+    value.forEach((item, index) =>
+      validate(resolveRef(schema, schema.items), item, `${location}[${index}]`),
+    );
   }
 }
 
@@ -64,9 +100,18 @@ function resolveRef(rootSchema, schema) {
 
 test("runtime fixtures match their canonical schemas", async () => {
   const cases = [
-    ["contracts/schemas/policy-decision.schema.json", "contracts/fixtures/policy-decision.allow.runner-job.json"],
-    ["contracts/schemas/usage-event.schema.json", "contracts/fixtures/usage-event.gateway-request.json"],
-    ["contracts/schemas/audit-event.schema.json", "contracts/fixtures/audit-event.policy-denied.json"]
+    [
+      "contracts/schemas/policy-decision.schema.json",
+      "contracts/fixtures/policy-decision.allow.runner-job.json",
+    ],
+    [
+      "contracts/schemas/usage-event.schema.json",
+      "contracts/fixtures/usage-event.gateway-request.json",
+    ],
+    [
+      "contracts/schemas/audit-event.schema.json",
+      "contracts/fixtures/audit-event.policy-denied.json",
+    ],
   ];
 
   for (const [schemaPath, fixturePath] of cases) {
@@ -83,13 +128,15 @@ test("generated schema artifacts mirror canonical schema sources", async () => {
     assert.deepEqual(
       await readJson(`packages/schemas/json/${fileName}`),
       await readJson(`contracts/schemas/${fileName}`),
-      `${fileName} generated artifact must mirror canonical source`
+      `${fileName} generated artifact must mirror canonical source`,
     );
   }
 });
 
 test("OpenAPI exposes the first control-plane resource surface", async () => {
-  const openapi = await readJson("contracts/openapi/taskotter-control-plane.openapi.json");
+  const openapi = await readJson(
+    "contracts/openapi/taskotter-control-plane.openapi.json",
+  );
   const expectedPaths = [
     "/users",
     "/working-groups",
@@ -101,20 +148,30 @@ test("OpenAPI exposes the first control-plane resource surface", async () => {
     "/providers",
     "/workflows",
     "/usage/events",
-    "/audit/events"
+    "/audit/events",
   ];
 
   for (const route of expectedPaths) {
     assert.ok(openapi.paths[route], `${route} must be present`);
   }
-  assert.ok(openapi.paths["/usage/events"].get, "usage read surface must be present");
-  assert.ok(openapi.paths["/usage/events"].post, "usage ingest surface must be present");
+  assert.ok(
+    openapi.paths["/usage/events"].get,
+    "usage read surface must be present",
+  );
+  assert.ok(
+    openapi.paths["/usage/events"].post,
+    "usage ingest surface must be present",
+  );
   assert.equal(openapi.info.version, "0.1.0");
 });
 
 test("runtime events use the canonical event envelope and required correlation chain", async () => {
-  const usage = await readJson("contracts/fixtures/usage-event.gateway-request.json");
-  const audit = await readJson("contracts/fixtures/audit-event.policy-denied.json");
+  const usage = await readJson(
+    "contracts/fixtures/usage-event.gateway-request.json",
+  );
+  const audit = await readJson(
+    "contracts/fixtures/audit-event.policy-denied.json",
+  );
 
   for (const event of [usage, audit]) {
     assert.match(event.id, /^evt_/);
@@ -124,13 +181,21 @@ test("runtime events use the canonical event envelope and required correlation c
     assert.match(event.request_id, /^req_/);
     assert.match(event.policy_decision_id, /^poldec_/);
     assert.equal(typeof event.payload, "object");
-    assert.ok(!Object.hasOwn(event, "event_id"), "event_id must not replace canonical id");
-    assert.ok(!Object.hasOwn(event, "schema_version"), "event envelopes use version, not schema_version");
+    assert.ok(
+      !Object.hasOwn(event, "event_id"),
+      "event_id must not replace canonical id",
+    );
+    assert.ok(
+      !Object.hasOwn(event, "schema_version"),
+      "event envelopes use version, not schema_version",
+    );
   }
 });
 
 test("policy decisions require provenance and audit correlation fields", async () => {
-  const schema = await readJson("contracts/schemas/policy-decision.schema.json");
+  const schema = await readJson(
+    "contracts/schemas/policy-decision.schema.json",
+  );
   const required = new Set(schema.required);
 
   for (const field of [
@@ -139,29 +204,44 @@ test("policy decisions require provenance and audit correlation fields", async (
     "reason_code",
     "correlation_id",
     "request_id",
-    "provenance"
+    "provenance",
   ]) {
     assert.ok(required.has(field), `policy decision must require ${field}`);
   }
 });
 
 test("comment writes derive Working Group scope from the issue path", async () => {
-  const openapi = await readJson("contracts/openapi/taskotter-control-plane.openapi.json");
+  const openapi = await readJson(
+    "contracts/openapi/taskotter-control-plane.openapi.json",
+  );
   const requestSchema = openapi.components.schemas.CreateCommentRequest;
   const post = openapi.paths["/issues/{issue_id}/comments"].post;
 
   assert.deepEqual(requestSchema.required, ["body"]);
   assert.ok(!Object.hasOwn(requestSchema.properties, "working_group_id"));
-  assert.match(post.description, /derives the Working Group from the issue resource/);
-  assert.ok(post.responses["409"], "WG mismatch rejection response must be documented");
+  assert.match(
+    post.description,
+    /derives the Working Group from the issue resource/,
+  );
+  assert.ok(
+    post.responses["409"],
+    "WG mismatch rejection response must be documented",
+  );
 });
 
 test("error details are restricted to a safe allowlist", async () => {
-  const openapi = await readJson("contracts/openapi/taskotter-control-plane.openapi.json");
-  const details = openapi.components.schemas.ErrorEnvelope.properties.error.properties.details;
+  const openapi = await readJson(
+    "contracts/openapi/taskotter-control-plane.openapi.json",
+  );
+  const details =
+    openapi.components.schemas.ErrorEnvelope.properties.error.properties
+      .details;
   const allowedKeys = Object.keys(details.items.properties).sort();
 
   assert.equal(details.items.additionalProperties, false);
   assert.deepEqual(allowedKeys, ["code", "field", "message", "redacted"]);
-  assert.match(details.description, /Do not include request bodies, credentials/);
+  assert.match(
+    details.description,
+    /Do not include request bodies, credentials/,
+  );
 });

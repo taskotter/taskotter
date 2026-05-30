@@ -4,17 +4,18 @@ import process from "node:process";
 
 const root = process.cwd();
 const frontendRoots = [
+  "src",
   "apps/web",
   "apps/desktop",
   "apps/mobile",
   "packages/ui",
-  "packages/workflow"
+  "packages/workflow",
 ];
 const allowedContractImports = [
   "packages/api-client",
   "packages/schemas",
   "@taskotter/api-client",
-  "@taskotter/schemas"
+  "@taskotter/schemas",
 ];
 const forbiddenImportPatterns = [
   /(?:^|['"])services\/api(?:\/|['"])/,
@@ -22,10 +23,18 @@ const forbiddenImportPatterns = [
   /(?:^|['"])services\/gateway(?:\/|['"])/,
   /\.\.\/(?:\.\.\/)*services\/api(?:\/|['"])/,
   /\.\.\/(?:\.\.\/)*services\/runner(?:\/|['"])/,
-  /\.\.\/(?:\.\.\/)*services\/gateway(?:\/|['"])/
+  /\.\.\/(?:\.\.\/)*services\/gateway(?:\/|['"])/,
 ];
-const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
-const importPattern = /(?:import|export)\s+(?:type\s+)?(?:[^'"]*from\s+)?['"]([^'"]+)['"]|require\(['"]([^'"]+)['"]\)/g;
+const sourceExtensions = new Set([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+]);
+const importPattern =
+  /(?:import|export)\s+(?:type\s+)?(?:[^'"]*from\s+)?['"]([^'"]+)['"]|require\(['"]([^'"]+)['"]\)/g;
 
 async function pathExists(relativePath) {
   try {
@@ -41,10 +50,15 @@ async function walk(relativePath) {
   const entries = await readdir(absolute, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
-    if (entry.name === "node_modules" || entry.name === "dist" || entry.name === ".next") continue;
+    if (
+      entry.name === "node_modules" ||
+      entry.name === "dist" ||
+      entry.name === ".next"
+    )
+      continue;
     const child = path.join(relativePath, entry.name);
     if (entry.isDirectory()) {
-      files.push(...await walk(child));
+      files.push(...(await walk(child)));
     } else if (sourceExtensions.has(path.extname(entry.name))) {
       files.push(child);
     }
@@ -53,14 +67,18 @@ async function walk(relativePath) {
 }
 
 function isAllowedContractImport(specifier) {
-  return allowedContractImports.some((allowed) => specifier === allowed || specifier.startsWith(`${allowed}/`));
+  return allowedContractImports.some(
+    (allowed) => specifier === allowed || specifier.startsWith(`${allowed}/`),
+  );
 }
 
 function validateImport(fileName, specifier) {
   if (isAllowedContractImport(specifier)) return;
   for (const pattern of forbiddenImportPatterns) {
     if (pattern.test(specifier)) {
-      throw new Error(`${fileName} imports forbidden backend/runtime internals: ${specifier}`);
+      throw new Error(
+        `${fileName} imports forbidden backend/runtime internals: ${specifier}`,
+      );
     }
   }
 }
@@ -68,8 +86,8 @@ function validateImport(fileName, specifier) {
 async function main() {
   const checkedFiles = [];
   for (const frontendRoot of frontendRoots) {
-    if (!await pathExists(frontendRoot)) continue;
-    checkedFiles.push(...await walk(frontendRoot));
+    if (!(await pathExists(frontendRoot))) continue;
+    checkedFiles.push(...(await walk(frontendRoot)));
   }
 
   for (const fileName of checkedFiles) {
@@ -79,7 +97,9 @@ async function main() {
     }
   }
 
-  console.log(`Module boundary check passed (${checkedFiles.length} frontend files scanned).`);
+  console.log(
+    `Module boundary check passed (${checkedFiles.length} frontend files scanned).`,
+  );
 }
 
 main().catch((error) => {
