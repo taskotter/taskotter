@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.taskotter.dev/usage-event.schema.json",
+  "title": "TaskOtterUsageEvent",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event_id",
+    "working_group_id",
+    "source",
+    "occurred_at",
+    "subject",
+    "measurements"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "usage-event@0.1.0"
+    },
+    "event_id": {
+      "type": "string",
+      "pattern": "^usevt_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "working_group_id": {
+      "type": "string",
+      "pattern": "^wg_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "control_plane",
+        "runner",
+        "gateway"
+      ]
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "subject": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "agent_run",
+            "gateway_request",
+            "workflow_run"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "required": [
+        "duration_ms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_invocations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "estimated_cost_micros": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "policy_decision_id": {
+      "type": "string"
+    },
+    "idempotency_key": {
+      "type": "string"
+    }
+  }
+}

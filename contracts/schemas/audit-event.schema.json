@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.taskotter.dev/audit-event.schema.json",
+  "title": "TaskOtterAuditEvent",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event_id",
+    "working_group_id",
+    "actor",
+    "action",
+    "resource",
+    "outcome",
+    "occurred_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "audit-event@0.1.0"
+    },
+    "event_id": {
+      "type": "string",
+      "pattern": "^aud_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "working_group_id": {
+      "type": "string",
+      "pattern": "^wg_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "actor": {
+      "$ref": "#/$defs/actorRef"
+    },
+    "action": {
+      "type": "string"
+    },
+    "resource": {
+      "$ref": "#/$defs/resourceRef"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "allowed",
+        "denied",
+        "succeeded",
+        "failed"
+      ]
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "request_id": {
+      "type": "string"
+    },
+    "policy_decision_id": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "actorRef": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "user",
+            "agent",
+            "service"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "resourceRef": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

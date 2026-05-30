@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.taskotter.dev/policy-decision.schema.json",
+  "title": "TaskOtterPolicyDecision",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "decision_id",
+    "working_group_id",
+    "actor",
+    "action",
+    "resource",
+    "effect",
+    "evaluated_at",
+    "ttl_seconds",
+    "constraints"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "policy-decision@0.1.0"
+    },
+    "decision_id": {
+      "type": "string",
+      "pattern": "^poldec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "working_group_id": {
+      "type": "string",
+      "pattern": "^wg_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "actor": {
+      "$ref": "#/$defs/actorRef"
+    },
+    "action": {
+      "type": "string",
+      "examples": [
+        "runner.job.execute",
+        "gateway.provider.invoke"
+      ]
+    },
+    "resource": {
+      "$ref": "#/$defs/resourceRef"
+    },
+    "effect": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "deny"
+      ]
+    },
+    "reason_code": {
+      "type": "string"
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ttl_seconds": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3600
+    },
+    "constraints": {
+      "type": "object",
+      "required": [
+        "network_zones",
+        "tool_scopes",
+        "provider_model_ids",
+        "max_runtime_seconds"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "network_zones": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tool_scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "provider_model_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "max_runtime_seconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  },
+  "$defs": {
+    "actorRef": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "user",
+            "agent",
+            "service"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "resourceRef": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
