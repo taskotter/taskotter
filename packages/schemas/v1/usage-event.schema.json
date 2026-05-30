@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.taskotter.dev/v1/usage-event.schema.json",
+  "title": "UsageEvent",
+  "type": "object",
+  "required": ["id", "working_group_id", "principal", "subject", "units", "idempotency_key"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "working_group_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "principal": {
+      "$ref": "#/$defs/principal"
+    },
+    "subject": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": true,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["model_call", "tool_call", "automation_run", "runner_job", "gateway_request"]
+        }
+      }
+    },
+    "units": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["kind", "quantity"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "input_token",
+              "output_token",
+              "tool_invocation",
+              "runtime_millisecond",
+              "stored_byte",
+              "estimated_cost_microusd"
+            ]
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$defs": {
+    "principal": {
+      "type": "object",
+      "required": ["kind", "id", "working_group_id"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["user", "agent", "service"]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "working_group_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
+

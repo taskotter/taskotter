@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.taskotter.dev/v1/gateway-protocol.schema.json",
+  "title": "GatewayProtocol",
+  "type": "object",
+  "required": ["request_id", "working_group_id", "requested_by", "provider_id", "model", "policy_decision"],
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "working_group_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requested_by": {
+      "type": "object"
+    },
+    "provider_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policy_decision": {
+      "$ref": "policy-decision.schema.json"
+    }
+  }
+}
+

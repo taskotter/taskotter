@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.taskotter.dev/v1/runner-protocol.schema.json",
+  "title": "RunnerProtocol",
+  "type": "object",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/registration"
+    },
+    {
+      "$ref": "#/$defs/job_dispatch"
+    }
+  ],
+  "$defs": {
+    "registration": {
+      "type": "object",
+      "required": ["kind", "runner_id", "working_group_id", "labels", "max_concurrency", "capabilities"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "runner_registration"
+        },
+        "runner_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "working_group_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "max_concurrency": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "capabilities": {
+          "type": "object",
+          "required": [
+            "operating_system",
+            "architecture",
+            "tool_names",
+            "supports_mcp_hosting",
+            "supports_local_models"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "operating_system": {
+              "type": "string"
+            },
+            "architecture": {
+              "type": "string"
+            },
+            "tool_names": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "supports_mcp_hosting": {
+              "type": "boolean"
+            },
+            "supports_local_models": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "job_dispatch": {
+      "type": "object",
+      "required": ["kind", "job_id", "runner_id", "requested_by", "policy_decision", "timeout_seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "runner_job_dispatch"
+        },
+        "job_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runner_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requested_by": {
+          "type": "object"
+        },
+        "policy_decision": {
+          "$ref": "policy-decision.schema.json"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}
+

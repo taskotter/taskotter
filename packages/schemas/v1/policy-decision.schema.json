@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.taskotter.dev/v1/policy-decision.schema.json",
+  "title": "PolicyDecision",
+  "type": "object",
+  "required": ["effect", "constraints"],
+  "additionalProperties": false,
+  "properties": {
+    "effect": {
+      "type": "string",
+      "enum": ["allow", "deny"]
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "effect", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "effect": {
+            "type": "string",
+            "enum": ["allow", "deny"]
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
+
