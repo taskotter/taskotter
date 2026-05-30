@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.taskotter.dev/usage-event.schema.json",
+  "title": "TaskOtterUsageEvent",
+  "type": "object",
+  "required": [
+    "id",
+    "type",
+    "version",
+    "occurred_at",
+    "source",
+    "working_group_id",
+    "actor",
+    "resource",
+    "correlation_id",
+    "request_id",
+    "policy_decision_id",
+    "idempotency_key",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "type": {
+      "const": "usage.gateway_request.recorded"
+    },
+    "version": {
+      "const": "0.1.0"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "control_plane",
+        "runner",
+        "gateway"
+      ]
+    },
+    "working_group_id": {
+      "type": "string",
+      "pattern": "^wg_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "actor": {
+      "$ref": "#/$defs/actorRef"
+    },
+    "resource": {
+      "$ref": "#/$defs/resourceRef"
+    },
+    "correlation_id": {
+      "type": "string",
+      "pattern": "^corr_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "policy_decision_id": {
+      "type": "string",
+      "pattern": "^poldec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "subject",
+        "measurements"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "subject": {
+          "type": "object",
+          "required": [
+            "type",
+            "id"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "agent_run",
+                "gateway_request",
+                "workflow_run"
+              ]
+            },
+            "id": {
+              "type": "string"
+            }
+          }
+        },
+        "measurements": {
+          "type": "object",
+          "required": [
+            "duration_ms"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "duration_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "input_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "output_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "tool_invocations": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "estimated_cost_micros": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "actorRef": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "user",
+            "agent",
+            "service"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "resourceRef": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
