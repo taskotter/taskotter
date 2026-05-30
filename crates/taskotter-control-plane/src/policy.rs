@@ -1,27 +1,51 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::domain::{Actor, WorkingGroupId};
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-pub struct PolicyDecisionRequest {
-    pub working_group_id: WorkingGroupId,
-    pub actor: Actor,
-    pub action: String,
-    pub resource: String,
+pub struct PolicySubject {
+    pub user_id: String,
+    pub working_group_id: String,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub workflow_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum PolicyEffect {
-    Allow,
-    Deny,
+pub enum ProviderKind {
+    Hosted,
+    OpenAiCompatible,
+    LocalRunner,
+    FutureAdapter,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ProviderRef {
+    pub provider_id: String,
+    pub kind: ProviderKind,
+    pub model: String,
+    #[serde(default)]
+    pub endpoint_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PolicyDecisionRequest {
+    pub subject: PolicySubject,
+    pub provider: ProviderRef,
+    pub operation: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct PolicyDecision {
-    pub effect: PolicyEffect,
-    pub reason: String,
+    pub allowed: bool,
+    pub decision_id: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub max_tokens: Option<u64>,
+    #[serde(default)]
+    pub max_cost_micro_usd: Option<u64>,
 }
 
 pub trait PolicyEvaluator: Send + Sync {
@@ -33,39 +57,53 @@ pub struct BaselinePolicyEvaluator;
 
 impl PolicyEvaluator for BaselinePolicyEvaluator {
     fn evaluate(&self, request: &PolicyDecisionRequest) -> PolicyDecision {
-        if request.action.trim().is_empty() || request.resource.trim().is_empty() {
+        let denied = request.operation.trim().is_empty()
+            || request.subject.user_id == "denied"
+            || request.provider.provider_id.starts_with("disabled_");
+
+        if denied {
             return PolicyDecision {
-                effect: PolicyEffect::Deny,
-                reason: "action and resource are required".to_owned(),
+                allowed: false,
+                decision_id: format!("local-policy:{}", request.operation),
+                reason: Some("request denied by control-plane policy".to_owned()),
+                max_tokens: Some(8_192),
+                max_cost_micro_usd: Some(50_000),
             };
         }
 
         PolicyDecision {
-            effect: PolicyEffect::Allow,
-            reason: "baseline policy allows non-empty scoped requests".to_owned(),
+            allowed: true,
+            decision_id: format!("local-policy:{}", request.operation),
+            reason: None,
+            max_tokens: Some(8_192),
+            max_cost_micro_usd: Some(50_000),
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use uuid::Uuid;
-
     use super::*;
-    use crate::domain::{UserId, WorkingGroupId};
 
     #[test]
     fn baseline_policy_denies_incomplete_requests() {
         let evaluator = BaselinePolicyEvaluator;
         let decision = evaluator.evaluate(&PolicyDecisionRequest {
-            working_group_id: WorkingGroupId(Uuid::new_v4()),
-            actor: Actor::User {
-                id: UserId(Uuid::new_v4()),
+            subject: PolicySubject {
+                user_id: "user_1".to_owned(),
+                working_group_id: "wg_1".to_owned(),
+                agent_id: None,
+                workflow_id: None,
             },
-            action: String::new(),
-            resource: "issue".to_owned(),
+            provider: ProviderRef {
+                provider_id: "provider_1".to_owned(),
+                kind: ProviderKind::OpenAiCompatible,
+                model: "test-model".to_owned(),
+                endpoint_id: None,
+            },
+            operation: String::new(),
         });
 
-        assert_eq!(decision.effect, PolicyEffect::Deny);
+        assert!(!decision.allowed);
     }
 }
