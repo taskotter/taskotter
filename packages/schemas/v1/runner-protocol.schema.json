@@ -89,7 +89,7 @@
           "minLength": 1
         },
         "requested_by": {
-          "type": "object"
+          "$ref": "common.schema.json#/$defs/principal"
         },
         "policy_decision": {
           "$ref": "policy-decision.schema.json"
@@ -102,4 +102,3 @@
     }
   }
 }
-

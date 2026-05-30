@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.taskotter.dev/v1/policy-decision-request.schema.json",
+  "title": "PolicyDecisionRequest",
+  "type": "object",
+  "required": ["principal", "action", "resource", "context"],
+  "additionalProperties": false,
+  "properties": {
+    "principal": {
+      "$ref": "common.schema.json#/$defs/principal"
+    },
+    "action": {
+      "$ref": "common.schema.json#/$defs/action"
+    },
+    "resource": {
+      "$ref": "common.schema.json#/$defs/resource"
+    },
+    "context": {
+      "type": "object",
+      "required": ["request_id", "source", "requires_human_approval"],
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "enum": ["api", "automation", "runner", "gateway"]
+        },
+        "requires_human_approval": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
+
