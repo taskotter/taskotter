@@ -346,10 +346,21 @@ button {
 
 .issue-surface {
   min-height: 0;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
   overflow: auto;
+  overflow-x: hidden;
   display: grid;
   align-content: start;
   gap: 16px;
+}
+
+.issue-group,
+.issue-rows {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
 }
 
 .issue-group h2 {
@@ -372,8 +383,12 @@ button {
 }
 
 .issue-row {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
   min-height: 82px;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 12px;
   border: 1px solid var(--line);
@@ -404,8 +419,15 @@ button {
   margin-right: 8px;
 }
 
+.issue-row-main {
+  flex: 1 1 320px;
+  max-width: 100%;
+}
+
 .issue-row-meta {
-  min-width: 240px;
+  flex: 1 1 240px;
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;

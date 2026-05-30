@@ -58,3 +58,48 @@ test("responsive sidebar controls keep accessible names", async ({ page }) => {
     await expect(page.getByRole("link", { name })).toBeVisible();
   }
 });
+
+test("issue row metadata chips stay visible inside the workspace", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const selectedIssue = page.locator('article[aria-label^="BOG-436"]');
+  await expect(selectedIssue.getByText("In progress")).toBeVisible();
+  await expect(selectedIssue.getByText("Policy OK")).toBeVisible();
+  await expect(selectedIssue.getByText("4 comments")).toBeVisible();
+
+  const layout = await selectedIssue.evaluate((issueRow) => {
+    const surface = issueRow.closest(".issue-surface");
+    const meta = issueRow.querySelector(".issue-row-meta");
+    const chips = Array.from(issueRow.querySelectorAll(".issue-row-meta > *"));
+
+    if (!surface || !meta || chips.length === 0) {
+      return { missing: true };
+    }
+
+    const surfaceRect = surface.getBoundingClientRect();
+    const metaRect = meta.getBoundingClientRect();
+    const chipRects = chips.map((chip) => chip.getBoundingClientRect());
+    const tolerance = 1;
+
+    return {
+      missing: false,
+      metaInsideSurface:
+        metaRect.left >= surfaceRect.left - tolerance &&
+        metaRect.right <= surfaceRect.right + tolerance,
+      chipsInsideSurface: chipRects.every(
+        (rect) =>
+          rect.width > 0 &&
+          rect.left >= surfaceRect.left - tolerance &&
+          rect.right <= surfaceRect.right + tolerance,
+      ),
+    };
+  });
+
+  expect(layout).toEqual({
+    missing: false,
+    metaInsideSurface: true,
+    chipsInsideSurface: true,
+  });
+});
