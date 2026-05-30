@@ -134,7 +134,11 @@ function AppShell({ data }: { data: ConsoleData }) {
             <span>Admin console</span>
           </div>
         </div>
-        <button className="workspace-switcher" type="button">
+        <button
+          aria-label={`Switch working group: ${data.workingGroup.name}, ${data.workingGroup.role}, ${data.workingGroup.memberCount} members`}
+          className="workspace-switcher"
+          type="button"
+        >
           <span>
             <strong>{data.workingGroup.name}</strong>
             <small>
@@ -148,6 +152,7 @@ function AppShell({ data }: { data: ConsoleData }) {
             const Icon = item.icon;
             return (
               <a
+                aria-label={item.label}
                 aria-current={item.label === "Issues" ? "page" : undefined}
                 href={`#${item.label.toLowerCase()}`}
                 key={item.label}

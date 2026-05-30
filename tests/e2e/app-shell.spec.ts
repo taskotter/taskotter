@@ -44,3 +44,17 @@ test("keyboard focus reaches issue rows and composer", async ({ page }) => {
   await page.getByRole("textbox", { name: "Reply" }).focus();
   await expect(page.getByRole("textbox", { name: "Reply" })).toBeFocused();
 });
+
+test("responsive sidebar controls keep accessible names", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(
+    page.getByRole("button", {
+      name: /Switch working group: Platform Delivery/i,
+    }),
+  ).toBeVisible();
+
+  for (const name of ["Inbox", "Issues", "Chat", "Agents"]) {
+    await expect(page.getByRole("link", { name })).toBeVisible();
+  }
+});
