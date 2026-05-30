@@ -39,6 +39,35 @@ TaskOtter is under active private development. Public materials are intentionall
 
 More details will be shared as the project matures.
 
+## Development
+
+The repository currently contains the first Rust control-plane foundation in
+`crates/taskotter-control-plane`.
+
+Useful commands:
+
+```sh
+cargo fmt --all -- --check
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo run -p taskotter-control-plane
+```
+
+The service binds to `127.0.0.1:8080` by default. Set `TASKOTTER_BIND_ADDR` to
+override the local bind address.
+
+Initial contract endpoints:
+
+- `GET /health`
+- `GET /openapi.json`
+- `POST /v1/working-groups`
+- `POST /v1/issues`
+- `POST /v1/comments`
+- `POST /v1/registry`
+- `POST /v1/policy/decisions`
+- `POST /v1/usage/evaluate`
+- `POST /v1/audit/events`
+
 ## License
 
 This project is licensed under the PolyForm Strict License 1.0.0.
