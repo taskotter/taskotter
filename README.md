@@ -66,7 +66,14 @@ Initial contract endpoints:
 - `POST /v1/registry`
 - `POST /v1/policy/decisions`
 - `POST /v1/usage/evaluate`
+- `POST /v1/usage/events`
+- `POST /v1/remote/usage-reports`
 - `POST /v1/audit/events`
+
+The generated OpenAPI document is the MVP source of truth for policy decisions,
+gateway usage/audit events, and remote usage reports. See
+`docs/contracts/mvp-contracts.md` for the cross-repository contract boundary and
+publication path.
 
 ## License
 

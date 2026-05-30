@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::domain::WorkingGroupId;
+use crate::policy::{PolicySubject, ProviderRef};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct UsageSnapshot {
@@ -34,6 +36,52 @@ pub struct UsageEvaluationRequest {
 pub struct UsageEvaluation {
     pub allowed: bool,
     pub failed_limits: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageAttemptStatus {
+    Succeeded,
+    Denied,
+    Timeout,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct UsageAuditEventV1 {
+    pub schema_version: String,
+    pub event_id: Uuid,
+    pub request_id: Uuid,
+    #[serde(default)]
+    pub correlation_id: Option<String>,
+    pub subject: PolicySubject,
+    pub provider: ProviderRef,
+    pub decision_id: String,
+    pub status: UsageAttemptStatus,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub estimated_cost_micro_usd: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct RemoteUsageReportV1 {
+    pub schema_version: String,
+    pub job_id: String,
+    pub runner_id: String,
+    #[serde(default)]
+    pub request_id: Option<Uuid>,
+    #[serde(default)]
+    pub correlation_id: Option<String>,
+    pub status: UsageAttemptStatus,
+    pub duration_ms: u64,
+    #[serde(default)]
+    pub cpu_time_ms: Option<u64>,
+    #[serde(default)]
+    pub peak_memory_bytes: Option<u64>,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub estimated_cost_micro_usd: u64,
 }
 
 impl UsagePolicySet {
