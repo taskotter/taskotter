@@ -21,9 +21,14 @@ const forbiddenImportPatterns = [
   /(?:^|['"])services\/api(?:\/|['"])/,
   /(?:^|['"])services\/runner(?:\/|['"])/,
   /(?:^|['"])services\/gateway(?:\/|['"])/,
+  /(?:^|['"])(?:@taskotter\/)?(?:taskotter-)?gateway(?:\/|['"])/,
+  /(?:^|['"])(?:@taskotter\/)?(?:taskotter-)?remote(?:\/|['"])/,
+  /(?:^|['"])(?:@taskotter\/)?runner(?:\/|['"])/,
+  /(?:^|['"])packages\/(?:gateway|runner|remote)(?:\/|['"])/,
   /\.\.\/(?:\.\.\/)*services\/api(?:\/|['"])/,
   /\.\.\/(?:\.\.\/)*services\/runner(?:\/|['"])/,
   /\.\.\/(?:\.\.\/)*services\/gateway(?:\/|['"])/,
+  /\.\.\/(?:\.\.\/)*packages\/(?:gateway|runner|remote)(?:\/|['"])/,
 ];
 const sourceExtensions = new Set([
   ".ts",
