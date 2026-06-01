@@ -483,6 +483,300 @@ test("runtime events use the canonical event envelope and required correlation c
   }
 });
 
+test("synthetic audit chain reconstructs cross-surface correlation without sensitive payloads", async () => {
+  const fixture = await readJson(
+    "contracts/fixtures/audit-chain.synthetic-correlation-run.json",
+  );
+  const chainSchema = await readJson(
+    "contracts/schemas/audit-chain-fixture.schema.json",
+  );
+  const envelopeSchema = await readJson(
+    "contracts/schemas/event-envelope.schema.json",
+  );
+  const usageSchema = await readJson(
+    "contracts/schemas/usage-event.schema.json",
+  );
+  const auditSchema = await readJson(
+    "contracts/schemas/audit-event.schema.json",
+  );
+  const deniedUsage = await readJson(
+    "contracts/fixtures/usage-event.high-risk-runtime-denied.json",
+  );
+  const deniedAudit = await readJson(
+    "contracts/fixtures/audit-event.high-risk-runtime-denied.json",
+  );
+
+  validate(chainSchema, fixture);
+  validate(usageSchema, deniedUsage);
+  validate(auditSchema, deniedAudit);
+
+  const expectedStages = new Set([
+    "user_request",
+    "policy_decision",
+    "plan_approval_requested",
+    "plan_approved",
+    "approval_requested",
+    "runner_dispatch",
+    "gateway_request",
+    "mcp_call_denied",
+    "usage_event",
+    "audit_event",
+    "artifact_log_event",
+    "evidence_imported",
+    "review_packet_generated",
+    "human_decision_done",
+    "evidence_missing",
+    "human_decision_rework",
+    "final_result",
+  ]);
+  const actualStages = new Set(fixture.events.map((event) => event.stage));
+  for (const stage of expectedStages) {
+    assert.ok(actualStages.has(stage), `synthetic chain must include ${stage}`);
+  }
+
+  for (const event of fixture.events) {
+    assert.equal(event.correlation_id, fixture.chain.correlation_id);
+    assert.equal(event.request_id, fixture.chain.request_id);
+    assert.equal(event.working_group_id, fixture.chain.working_group_id);
+    assert.match(event.id, /^evt_/);
+    assert.ok(
+      !Object.hasOwn(event, "event_id"),
+      `${event.stage} must use canonical id, not event_id`,
+    );
+    validate(envelopeSchema, {
+      id: event.id,
+      type: event.type,
+      version: event.version,
+      occurred_at: event.occurred_at,
+      source: event.source,
+      working_group_id: event.working_group_id,
+      actor: event.actor,
+      resource: event.resource,
+      correlation_id: event.correlation_id,
+      request_id: event.request_id,
+      ...(event.policy_decision_id
+        ? { policy_decision_id: event.policy_decision_id }
+        : {}),
+      payload: event.payload,
+    });
+    assert.ok(
+      ["internal_reference_only", "redacted_summary"].includes(event.redaction),
+      `${event.stage} must not expose public or raw evidence`,
+    );
+    assert.ok(
+      Object.hasOwn(event.payload, "workflow_path"),
+      `${event.stage} must carry a workflow_path discriminator`,
+    );
+  }
+
+  const prototypePaths = new Map(
+    fixture.prototype_paths.map((path) => [path.path, path]),
+  );
+  assert.deepEqual([...prototypePaths.keys()].sort(), [
+    "denied",
+    "done_approved",
+    "missing_evidence",
+    "rework_requested",
+  ]);
+  assert.equal(prototypePaths.get("done_approved").terminal_state, "done");
+  assert.equal(prototypePaths.get("rework_requested").terminal_state, "rework");
+  assert.equal(prototypePaths.get("missing_evidence").terminal_state, "rework");
+  assert.equal(prototypePaths.get("denied").terminal_state, "denied");
+
+  const eventPathKey = (stage, workflowPath) => `${stage}:${workflowPath}`;
+  const eventsByStageAndPath = new Map(
+    fixture.events.map((event) => [
+      eventPathKey(event.stage, event.payload.workflow_path),
+      event,
+    ]),
+  );
+  for (const path of prototypePaths.values()) {
+    for (const stage of path.required_stages) {
+      assert.ok(
+        eventsByStageAndPath.has(eventPathKey(stage, path.path)),
+        `${path.path} path must reconstruct ${stage} using its own workflow_path`,
+      );
+    }
+  }
+
+  const donePlanApproval = eventsByStageAndPath.get(
+    eventPathKey("plan_approval_requested", "done_approved"),
+  );
+  const donePlanApproved = eventsByStageAndPath.get(
+    eventPathKey("plan_approved", "done_approved"),
+  );
+  const doneEvidenceImport = eventsByStageAndPath.get(
+    eventPathKey("evidence_imported", "done_approved"),
+  );
+  const doneReviewPacket = eventsByStageAndPath.get(
+    eventPathKey("review_packet_generated", "done_approved"),
+  );
+  const doneDecision = eventsByStageAndPath.get(
+    eventPathKey("human_decision_done", "done_approved"),
+  );
+  const reworkEvidenceImport = eventsByStageAndPath.get(
+    eventPathKey("evidence_imported", "rework_requested"),
+  );
+  const reworkReviewPacket = eventsByStageAndPath.get(
+    eventPathKey("review_packet_generated", "rework_requested"),
+  );
+  const reworkFinalResult = eventsByStageAndPath.get(
+    eventPathKey("final_result", "rework_requested"),
+  );
+  const missingEvidence = eventsByStageAndPath.get(
+    eventPathKey("evidence_missing", "missing_evidence"),
+  );
+  const missingReviewPacket = eventsByStageAndPath.get(
+    eventPathKey("review_packet_generated", "missing_evidence"),
+  );
+  const missingFinalResult = eventsByStageAndPath.get(
+    eventPathKey("final_result", "missing_evidence"),
+  );
+
+  assert.equal(donePlanApproval.approval_id, fixture.chain.approval_id);
+  assert.equal(donePlanApproved.payload.decision, "approved");
+  assert.equal(
+    doneEvidenceImport.payload.evidence_import_id,
+    fixture.chain.evidence_import_id,
+  );
+  assert.equal(
+    doneReviewPacket.payload.review_packet_id,
+    fixture.chain.review_packet_id,
+  );
+  assert.equal(doneDecision.payload.decision, "done");
+  assert.equal(
+    eventsByStageAndPath.get(
+      eventPathKey("human_decision_rework", "rework_requested"),
+    ).payload.decision,
+    "rework",
+  );
+  assert.equal(missingEvidence.payload.decision_hint, "rework");
+  assert.equal(reworkFinalResult.payload.status, "rework");
+  assert.equal(missingFinalResult.payload.status, "rework");
+  assert.notEqual(
+    reworkEvidenceImport.payload.evidence_import_id,
+    doneEvidenceImport.payload.evidence_import_id,
+    "rework evidence import must not reuse done path evidence",
+  );
+  assert.notEqual(
+    reworkReviewPacket.payload.review_packet_id,
+    doneReviewPacket.payload.review_packet_id,
+    "rework review packet must not reuse done path packet",
+  );
+  assert.notEqual(
+    missingReviewPacket.payload.review_packet_id,
+    doneReviewPacket.payload.review_packet_id,
+    "missing evidence review packet must not reuse done path packet",
+  );
+
+  const negativeCases = new Map(
+    fixture.negative_cases.map((negativeCase) => [
+      negativeCase.case,
+      negativeCase,
+    ]),
+  );
+  assert.deepEqual([...negativeCases.keys()].sort(), [
+    "malformed_correlation_id",
+    "missing_correlation_id",
+  ]);
+  for (const negativeCase of negativeCases.values()) {
+    const mutated = JSON.parse(JSON.stringify(fixture));
+    const targetEvent = mutated.events.find(
+      (event) => event.stage === negativeCase.target_stage,
+    );
+    assert.ok(targetEvent, `${negativeCase.case} target stage must exist`);
+    if (negativeCase.operation === "remove_field") {
+      delete targetEvent[negativeCase.field];
+    } else if (negativeCase.operation === "set_field") {
+      targetEvent[negativeCase.field] = negativeCase.value;
+    }
+    assert.throws(
+      () => validate(chainSchema, mutated),
+      new RegExp(negativeCase.expected_error),
+      `${negativeCase.case} must reject invalid correlation evidence`,
+    );
+  }
+
+  const linkedEvents = fixture.events.filter((event) =>
+    Object.hasOwn(event, "policy_decision_id"),
+  );
+  assert.ok(linkedEvents.length >= 6);
+  for (const event of linkedEvents) {
+    assert.equal(event.policy_decision_id, fixture.chain.policy_decision_id);
+  }
+
+  assert.equal(deniedUsage.correlation_id, fixture.chain.correlation_id);
+  assert.equal(deniedUsage.request_id, fixture.chain.request_id);
+  assert.equal(deniedAudit.correlation_id, fixture.chain.correlation_id);
+  assert.equal(
+    deniedAudit.policy_decision_id,
+    fixture.chain.policy_decision_id,
+  );
+  const canonicalReferences = new Map(
+    fixture.events
+      .filter((event) => event.event_shape === "canonical_event_reference")
+      .map((event) => [event.stage, event]),
+  );
+  assert.deepEqual([...canonicalReferences.keys()].sort(), [
+    "audit_event",
+    "usage_event",
+  ]);
+  assert.equal(
+    canonicalReferences.get("usage_event").canonical_fixture_path,
+    "contracts/fixtures/usage-event.high-risk-runtime-denied.json",
+  );
+  assert.equal(canonicalReferences.get("usage_event").id, deniedUsage.id);
+  assert.equal(
+    canonicalReferences.get("audit_event").canonical_schema_path,
+    "contracts/schemas/audit-event.schema.json",
+  );
+  assert.equal(canonicalReferences.get("audit_event").id, deniedAudit.id);
+
+  const remoteEvidence = fixture.cross_repo_evidence.remote;
+  assert.equal(
+    remoteEvidence.lineage_model,
+    "dispatch_fragment_requires_control_plane_join",
+  );
+  assert.deepEqual(remoteEvidence.dispatch_payload_lineage, {
+    has_correlation_id: true,
+    has_request_id: false,
+    has_policy_decision_id: false,
+    has_working_group_id: true,
+  });
+  assert.ok(
+    remoteEvidence.required_control_plane_join_keys.includes(
+      "policy_decision_id",
+    ),
+    "remote dispatch reconstruction must join policy decision lineage from control-plane records",
+  );
+  assert.equal(
+    fixture.residual_risk.security_review_trigger,
+    true,
+    "security review must be triggered for audit/approval/gateway boundaries",
+  );
+
+  const serialized = JSON.stringify(fixture);
+  for (const prohibited of [
+    "api_key",
+    "access_token",
+    "refresh_token",
+    "private_key",
+    "client_secret",
+    "bearer ",
+    "password",
+    "raw_prompt",
+    "raw_log",
+    "artifact_body",
+    "transcript_copy",
+    "-----BEGIN",
+  ]) {
+    assert.ok(
+      !serialized.toLowerCase().includes(prohibited),
+      `synthetic fixture must not include ${prohibited}`,
+    );
+  }
+});
+
 test("policy decisions require provenance and audit correlation fields", async () => {
   const schema = await readJson(
     "contracts/schemas/policy-decision.schema.json",

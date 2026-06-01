@@ -1,0 +1,912 @@
+{
+  "schema_version": "audit-chain-fixture@0.1.0",
+  "description": "Synthetic end-to-end correlation chain using generated fake references only.",
+  "chain": {
+    "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "actor": {
+      "type": "agent",
+      "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+    },
+    "run_id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "job_id": "job_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "runner_id": "runr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "gateway_request_id": "gwreq_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "mcp_server_id": "mcp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "evidence_import_id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "done_decision_id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EA",
+    "rework_decision_id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EB"
+  },
+  "prototype_paths": [
+    {
+      "path": "done_approved",
+      "terminal_state": "done",
+      "required_stages": [
+        "user_request",
+        "plan_approval_requested",
+        "plan_approved",
+        "evidence_imported",
+        "review_packet_generated",
+        "human_decision_done"
+      ]
+    },
+    {
+      "path": "rework_requested",
+      "terminal_state": "rework",
+      "required_stages": [
+        "user_request",
+        "plan_approved",
+        "evidence_imported",
+        "review_packet_generated",
+        "human_decision_rework",
+        "final_result"
+      ]
+    },
+    {
+      "path": "missing_evidence",
+      "terminal_state": "rework",
+      "required_stages": [
+        "user_request",
+        "plan_approved",
+        "evidence_missing",
+        "review_packet_generated",
+        "final_result"
+      ]
+    },
+    {
+      "path": "denied",
+      "terminal_state": "denied",
+      "required_stages": [
+        "policy_decision",
+        "approval_requested",
+        "mcp_call_denied",
+        "usage_event",
+        "audit_event",
+        "final_result"
+      ]
+    }
+  ],
+  "negative_cases": [
+    {
+      "case": "missing_correlation_id",
+      "target_stage": "review_packet_generated",
+      "operation": "remove_field",
+      "field": "correlation_id",
+      "expected_error": "correlation_id"
+    },
+    {
+      "case": "malformed_correlation_id",
+      "target_stage": "human_decision_done",
+      "operation": "set_field",
+      "field": "correlation_id",
+      "value": "corr_malformed",
+      "expected_error": "correlation_id"
+    }
+  ],
+  "cross_repo_evidence": {
+    "remote": {
+      "repo": "taskotter/taskotter-remote",
+      "protocol_version": "remote.v1alpha1",
+      "message_type": "job.dispatch",
+      "fixture_path": "fixtures/control-plane/job-dispatch-echo.json",
+      "lineage_model": "dispatch_fragment_requires_control_plane_join",
+      "required_control_plane_join_keys": [
+        "correlation_id",
+        "request_id",
+        "working_group_id",
+        "policy_decision_id",
+        "job_id",
+        "runner_id"
+      ],
+      "dispatch_payload_lineage": {
+        "has_correlation_id": true,
+        "has_request_id": false,
+        "has_policy_decision_id": false,
+        "has_working_group_id": true
+      }
+    },
+    "gateway": {
+      "repo": "taskotter/taskotter-gateway",
+      "protocol_version": "gateway.v0.1",
+      "request_fixtures": [
+        "fixtures/gateway/v0_1/scoped_model_request.json",
+        "fixtures/gateway/v0_1/scoped_mcp_session_request.json"
+      ],
+      "event_fixtures": [
+        "fixtures/gateway/v0_1/hosted_mcp_denied_usage_event.json",
+        "fixtures/gateway/v0_1/hosted_mcp_denied_audit_event.json"
+      ]
+    }
+  },
+  "events": [
+    {
+      "stage": "user_request",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AA",
+      "type": "controlplane.user_request.received",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.000Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "agent_run",
+        "id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "done_approved",
+        "intent": "run_synthetic_gateway_hosted_mcp_check",
+        "input_summary_ref": "summary_fixture_user_request",
+        "omitted_fields": [
+          "prompt_body",
+          "conversation_body",
+          "attachment_body"
+        ]
+      }
+    },
+    {
+      "stage": "policy_decision",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AB",
+      "type": "policy.decision.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.100Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "agent_run",
+        "id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "denied",
+        "effect": "deny",
+        "reason_code": "protected_capability_disabled",
+        "capability": "gateway.hosted_mcp_billing",
+        "feature_flag": "gateway.hosted_mcp_billing.enabled"
+      }
+    },
+    {
+      "stage": "plan_approval_requested",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AK",
+      "type": "review.plan_approval.requested",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.110Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "approval",
+        "id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "done_approved",
+        "plan_ref": "plan_summary_fixture_001",
+        "approval_scope": "prototype_review_control",
+        "omitted_fields": ["plan_detail_body", "conversation_detail_body"]
+      }
+    },
+    {
+      "stage": "plan_approved",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AR",
+      "type": "review.plan.approved",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.120Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "user",
+        "id": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "approval",
+        "id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "done_approved",
+        "decision": "approved",
+        "decision_ref": "approval_decision_fixture_001"
+      }
+    },
+    {
+      "stage": "approval_requested",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AC",
+      "type": "approval.requested",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.150Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "approval",
+        "id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "denied",
+        "approval_gate": "gateway_hosted_mcp_runtime",
+        "status": "required_before_dispatch"
+      }
+    },
+    {
+      "stage": "runner_dispatch",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AD",
+      "type": "job.dispatch",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.200Z",
+      "source": "runner",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "runner",
+        "id": "runr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "protocol_version": "remote.v1alpha1",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "denied",
+        "runner_id": "runr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "job_id": "job_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "adapter": "echo",
+        "workspace_root_strategy": "temporary_isolated",
+        "scoped_credential_ref": "secret_ref_runner_fixture",
+        "lineage_join_note": "remote.v1alpha1 dispatch carries only a fragment; full reconstruction joins through the control-plane chain record"
+      }
+    },
+    {
+      "stage": "gateway_request",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AE",
+      "type": "gateway.model.request",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.300Z",
+      "source": "gateway",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "gateway_request",
+        "id": "gwreq_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "protocol_version": "gateway.v0.1",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "denied",
+        "gateway_request_id": "gwreq_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "provider": "fake-hosted",
+        "model": "fake-deterministic-v1",
+        "credential_scope": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP/provider/fake-hosted/model/fake-deterministic-v1"
+      }
+    },
+    {
+      "stage": "mcp_call_denied",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AF",
+      "type": "gateway.mcp.session.open.denied",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.400Z",
+      "source": "gateway",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "mcp_server",
+        "id": "mcp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "protocol_version": "gateway.v0.1",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "denied",
+        "mcp_server_id": "mcp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "hosting_mode": "gateway_hosted",
+        "denial_reason": "protected_capability_disabled",
+        "allowed_tool_refs": ["tool_fixture_read"],
+        "credential_scope": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP/mcp/mcp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      }
+    },
+    {
+      "stage": "usage_event",
+      "event_shape": "canonical_event_reference",
+      "canonical_schema_path": "contracts/schemas/usage-event.schema.json",
+      "canonical_fixture_path": "contracts/fixtures/usage-event.high-risk-runtime-denied.json",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "type": "usage.gateway_request.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:01.000Z",
+      "source": "gateway",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "mcp_server",
+        "id": "mcp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "denied",
+        "subject": {
+          "type": "gateway_request",
+          "id": "gwreq_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+        },
+        "measurements": {
+          "duration_ms": 0,
+          "tool_invocations": 0,
+          "estimated_cost_micros": 0,
+          "metering_unit": "hosted_mcp_runtime_ms",
+          "runtime_capability": "gateway.hosted_mcp_billing"
+        }
+      }
+    },
+    {
+      "stage": "audit_event",
+      "event_shape": "canonical_event_reference",
+      "canonical_schema_path": "contracts/schemas/audit-event.schema.json",
+      "canonical_fixture_path": "contracts/fixtures/audit-event.high-risk-runtime-denied.json",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EQ",
+      "type": "audit.policy_decision.denied",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:02.000Z",
+      "source": "gateway",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "mcp_server",
+        "id": "mcp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "denied",
+        "action": "gateway.mcp.session.open",
+        "outcome": "denied",
+        "runtime_capability": "gateway.hosted_mcp_billing",
+        "feature_flag": "gateway.hosted_mcp_billing.enabled",
+        "approval_ref": "approval_required_before_paid_runtime"
+      }
+    },
+    {
+      "stage": "artifact_log_event",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AH",
+      "type": "artifact.log.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.600Z",
+      "source": "runner",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "job",
+        "id": "job_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "done_approved",
+        "artifact_manifest_ref": "artifact_manifest_fixture_001",
+        "log_excerpt_ref": "log_excerpt_fixture_redacted_001",
+        "byte_count": 128,
+        "omitted_fields": ["stdout_body", "stderr_body", "artifact_payload"]
+      }
+    },
+    {
+      "stage": "evidence_imported",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AM",
+      "type": "review.evidence.imported",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.620Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "service",
+        "id": "svc_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "evidence_import",
+        "id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "done_approved",
+        "evidence_import_id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "evidence_refs": [
+          "artifact_manifest_fixture_001",
+          "test_result_summary_fixture_001"
+        ],
+        "import_status": "imported",
+        "omitted_fields": ["artifact_payload", "stdout_body", "stderr_body"]
+      }
+    },
+    {
+      "stage": "review_packet_generated",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AN",
+      "type": "review.packet.generated",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.650Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "service",
+        "id": "svc_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "review_packet",
+        "id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "done_approved",
+        "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "evidence_import_id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "packet_ref": "review_packet_summary_fixture_001",
+        "coverage_summary": {
+          "lint": "passed",
+          "typecheck": "passed",
+          "contract_tests": "passed"
+        }
+      }
+    },
+    {
+      "stage": "human_decision_done",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AS",
+      "type": "review.human_decision.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.690Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "user",
+        "id": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "human_decision",
+        "id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EA"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "done_approved",
+        "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "decision": "done",
+        "decision_id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EA"
+      }
+    },
+    {
+      "stage": "evidence_missing",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AP",
+      "type": "review.evidence.missing",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.710Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "service",
+        "id": "svc_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "evidence_import",
+        "id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "missing_evidence",
+        "evidence_import_id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "missing_refs": ["test_result_summary_fixture_001"],
+        "decision_hint": "rework"
+      }
+    },
+    {
+      "stage": "human_decision_rework",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AQ",
+      "type": "review.human_decision.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.730Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "user",
+        "id": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "human_decision",
+        "id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EB"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "rework_requested",
+        "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "decision": "rework",
+        "decision_id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EB",
+        "reason_code": "missing_required_evidence"
+      }
+    },
+    {
+      "stage": "user_request",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BA",
+      "type": "controlplane.user_request.received",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.740Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "agent_run",
+        "id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "rework_requested",
+        "intent": "review_rework_request",
+        "input_summary_ref": "summary_fixture_rework_request",
+        "omitted_fields": [
+          "prompt_body",
+          "conversation_body",
+          "attachment_body"
+        ]
+      }
+    },
+    {
+      "stage": "plan_approved",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BB",
+      "type": "review.plan.approved",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.750Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "user",
+        "id": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "approval",
+        "id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "rework_requested",
+        "decision": "approved",
+        "decision_ref": "approval_decision_fixture_rework"
+      }
+    },
+    {
+      "stage": "evidence_imported",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BC",
+      "type": "review.evidence.imported",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.760Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "service",
+        "id": "svc_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "evidence_import",
+        "id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2RW"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "rework_requested",
+        "evidence_import_id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2RW",
+        "evidence_refs": [
+          "artifact_manifest_fixture_rework",
+          "test_result_summary_fixture_rework"
+        ],
+        "import_status": "imported",
+        "omitted_fields": ["artifact_payload", "stdout_body", "stderr_body"]
+      }
+    },
+    {
+      "stage": "review_packet_generated",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BD",
+      "type": "review.packet.generated",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.770Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "service",
+        "id": "svc_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "review_packet",
+        "id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2RW"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "rework_requested",
+        "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2RW",
+        "evidence_import_id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2RW",
+        "packet_ref": "review_packet_summary_fixture_rework",
+        "coverage_summary": {
+          "lint": "passed",
+          "typecheck": "passed",
+          "contract_tests": "passed"
+        }
+      }
+    },
+    {
+      "stage": "final_result",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BE",
+      "type": "run.final_result.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.780Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "agent_run",
+        "id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "rework_requested",
+        "status": "rework",
+        "reason_code": "reviewer_requested_rework",
+        "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2RW",
+        "decision_id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EB"
+      }
+    },
+    {
+      "stage": "user_request",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BF",
+      "type": "controlplane.user_request.received",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.790Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "agent_run",
+        "id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "missing_evidence",
+        "intent": "review_missing_evidence_request",
+        "input_summary_ref": "summary_fixture_missing_evidence_request",
+        "omitted_fields": [
+          "prompt_body",
+          "conversation_body",
+          "attachment_body"
+        ]
+      }
+    },
+    {
+      "stage": "plan_approved",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BG",
+      "type": "review.plan.approved",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.800Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "user",
+        "id": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "approval",
+        "id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "missing_evidence",
+        "decision": "approved",
+        "decision_ref": "approval_decision_fixture_missing_evidence"
+      }
+    },
+    {
+      "stage": "review_packet_generated",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BH",
+      "type": "review.packet.generated",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.810Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "service",
+        "id": "svc_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "review_packet",
+        "id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2ME"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "missing_evidence",
+        "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2ME",
+        "evidence_import_id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2ME",
+        "packet_ref": "review_packet_summary_fixture_missing_evidence",
+        "coverage_summary": {
+          "lint": "passed",
+          "typecheck": "passed",
+          "contract_tests": "blocked_missing_evidence"
+        }
+      }
+    },
+    {
+      "stage": "final_result",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BJ",
+      "type": "run.final_result.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.820Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "agent_run",
+        "id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "missing_evidence",
+        "status": "rework",
+        "reason_code": "missing_required_evidence",
+        "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2ME",
+        "missing_refs": ["test_result_summary_fixture_001"]
+      }
+    },
+    {
+      "stage": "final_result",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AJ",
+      "type": "run.final_result.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.700Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "agent_run",
+        "id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "denied",
+        "status": "denied",
+        "reason_code": "protected_capability_disabled",
+        "reconstructable_from": [
+          "correlation_id",
+          "request_id",
+          "policy_decision_id",
+          "approval_id",
+          "id"
+        ]
+      }
+    }
+  ],
+  "residual_risk": {
+    "export_delete_retention": "Not covered by this fixture. Durable audit export, legal hold, delete semantics, and retention windows require a follow-up policy and storage test plan before production enablement.",
+    "security_review_trigger": true,
+    "security_review_reason": "Fixture exercises approval, audit, usage, runner dispatch, gateway, hosted MCP, and redacted evidence boundaries."
+  }
+}
