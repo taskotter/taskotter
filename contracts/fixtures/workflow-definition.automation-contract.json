@@ -1,0 +1,200 @@
+{
+  "schema_version": "workflow-definition@0.1.0",
+  "workflow_id": "wfl_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "name": "Escalate policy-denied issue automation",
+  "description": "Portable YAML workflow contract fixture for trigger, policy, approval, and audit validation.",
+  "status": "draft",
+  "portable_format": "yaml",
+  "service_identity": {
+    "type": "service_account",
+    "id": "svc_workflow_automation",
+    "delegation": {
+      "preserve_triggering_principal": true
+    }
+  },
+  "triggers": [
+    {
+      "id": "nightly_scan",
+      "type": "cron",
+      "enabled": true,
+      "filters": ["issue.status == 'todo'"],
+      "cron": {
+        "schedule": "0 9 * * 1-5",
+        "timezone": "UTC"
+      }
+    },
+    {
+      "id": "external_policy_webhook",
+      "type": "webhook",
+      "enabled": true,
+      "filters": ["payload.event_type == 'policy.denied'"],
+      "webhook": {
+        "integration_ref": {
+          "integration_ref": "int_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+          "purpose": "policy event source"
+        },
+        "signature_verification": {
+          "required": true,
+          "algorithm": "hmac-sha256",
+          "secret_ref": {
+            "secret_ref": "sec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+            "purpose": "webhook signing secret"
+          },
+          "timestamp_header": "x-taskotter-timestamp",
+          "signature_header": "x-taskotter-signature"
+        },
+        "replay_protection": {
+          "required": true,
+          "dedupe_key": "delivery_id",
+          "window_seconds": 300
+        }
+      }
+    },
+    {
+      "id": "policy_denied_event",
+      "type": "internal_event",
+      "enabled": true,
+      "filters": ["event.resource.type == 'issue'"],
+      "internal_event": {
+        "event_type": "policy.decision_denied"
+      }
+    }
+  ],
+  "concurrency": {
+    "scope": "workflow",
+    "limit": 1,
+    "on_conflict": "queue"
+  },
+  "defaults": {
+    "timeout_seconds": 1800,
+    "retry": {
+      "max_attempts": 2,
+      "backoff": "exponential",
+      "idempotency_required": true
+    }
+  },
+  "approval_gates": [
+    {
+      "id": "approve_protected_action",
+      "approver_scope": "working_group_admin",
+      "required_before": "protected_side_effect",
+      "timeout_seconds": 86400,
+      "on_timeout": "deny",
+      "reason": "Protected side effects must be approved before execution."
+    }
+  ],
+  "jobs": [
+    {
+      "id": "triage_policy_denial",
+      "name": "Triage denied policy decision",
+      "condition": "trigger.enabled == true",
+      "timeout_seconds": 1200,
+      "retry": {
+        "max_attempts": 2,
+        "backoff": "linear",
+        "idempotency_required": true
+      },
+      "policy": {
+        "action": "workflow.job.evaluate",
+        "resource": {
+          "type": "workflow",
+          "id": "wfl_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+        },
+        "decision_ref": "policy_decision"
+      },
+      "steps": [
+        {
+          "id": "record_policy_check",
+          "kind": "policy_check",
+          "name": "Record policy check",
+          "policy": {
+            "action": "workflow.policy.check",
+            "resource": {
+              "type": "issue",
+              "id": "iss_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+            },
+            "decision_ref": "policy_decision"
+          },
+          "side_effect": {
+            "classification": "none"
+          }
+        },
+        {
+          "id": "request_approval",
+          "kind": "approval_wait",
+          "name": "Request protected action approval",
+          "needs": ["record_policy_check"],
+          "approval_gate_ref": "approve_protected_action",
+          "side_effect": {
+            "classification": "none"
+          }
+        },
+        {
+          "id": "notify_integration",
+          "kind": "integration_call",
+          "name": "Notify external escalation integration",
+          "needs": ["request_approval"],
+          "uses": "integrations/escalation.notify",
+          "approval_gate_ref": "approve_protected_action",
+          "integration_refs": [
+            {
+              "integration_ref": "int_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+              "purpose": "external escalation delivery"
+            }
+          ],
+          "secret_refs": [
+            {
+              "secret_ref": "sec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+              "purpose": "scoped integration credential reference"
+            }
+          ],
+          "with": {
+            "message_template": "policy_denial_escalation",
+            "issue_ref": "iss_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+          },
+          "side_effect": {
+            "classification": "protected",
+            "description": "External notification may create tenant-visible side effects."
+          }
+        },
+        {
+          "id": "write_audit_event",
+          "kind": "audit_event",
+          "name": "Write audit event reference",
+          "needs": ["notify_integration"],
+          "side_effect": {
+            "classification": "write",
+            "description": "Append-only audit event record."
+          }
+        }
+      ]
+    }
+  ],
+  "audit_events": [
+    {
+      "type": "workflow.definition.validated",
+      "resource": {
+        "type": "workflow",
+        "id": "wfl_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "when": "validation"
+    },
+    {
+      "type": "workflow.trigger.accepted",
+      "resource": {
+        "type": "workflow",
+        "id": "wfl_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "when": "trigger"
+    },
+    {
+      "type": "workflow.approval.requested",
+      "resource": {
+        "type": "workflow",
+        "id": "wfl_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "when": "approval"
+    }
+  ]
+}

@@ -604,6 +604,7 @@ export const WorkflowDefinitionSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.taskotter.dev/workflow-definition.schema.json",
   "title": "TaskOtterWorkflowDefinition",
+  "description": "Canonical parsed representation for portable TaskOtter workflow YAML. This contract defines authoring and validation shape only; scheduler and worker execution remain separate runtime responsibilities.",
   "type": "object",
   "required": [
     "schema_version",
@@ -611,8 +612,13 @@ export const WorkflowDefinitionSchema = {
     "working_group_id",
     "name",
     "status",
+    "portable_format",
+    "service_identity",
     "triggers",
-    "steps"
+    "concurrency",
+    "approval_gates",
+    "jobs",
+    "audit_events"
   ],
   "additionalProperties": false,
   "properties": {
@@ -631,6 +637,9 @@ export const WorkflowDefinitionSchema = {
       "type": "string",
       "minLength": 1
     },
+    "description": {
+      "type": "string"
+    },
     "status": {
       "type": "string",
       "enum": [
@@ -640,44 +649,708 @@ export const WorkflowDefinitionSchema = {
         "archived"
       ]
     },
+    "portable_format": {
+      "type": "string",
+      "enum": [
+        "yaml"
+      ]
+    },
+    "service_identity": {
+      "$ref": "#/$defs/serviceIdentity"
+    },
     "triggers": {
       "type": "array",
+      "minItems": 1,
       "items": {
-        "type": "object",
-        "required": [
-          "type"
-        ],
-        "additionalProperties": true,
-        "properties": {
-          "type": {
-            "type": "string"
+        "$ref": "#/$defs/trigger"
+      }
+    },
+    "concurrency": {
+      "$ref": "#/$defs/concurrency"
+    },
+    "defaults": {
+      "$ref": "#/$defs/executionDefaults"
+    },
+    "approval_gates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/approvalGate"
+      }
+    },
+    "jobs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/job"
+      }
+    },
+    "audit_events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/auditEventReference"
+      }
+    }
+  },
+  "$defs": {
+    "workflowLocalId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_\\-]{1,63}$"
+    },
+    "refName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_\\-./]{1,127}$"
+    },
+    "expression": {
+      "type": "string",
+      "minLength": 1
+    },
+    "serviceIdentity": {
+      "type": "object",
+      "required": [
+        "type",
+        "id",
+        "delegation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "service_account",
+            "delegated_actor"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "delegation": {
+          "type": "object",
+          "required": [
+            "preserve_triggering_principal"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "preserve_triggering_principal": {
+              "type": "boolean",
+              "const": true
+            }
           }
         }
       }
     },
-    "steps": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "object",
-        "required": [
-          "id",
-          "kind"
-        ],
-        "additionalProperties": true,
-        "properties": {
-          "id": {
-            "type": "string"
+    "resourceRef": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "secretRef": {
+      "type": "object",
+      "description": "Pointer to centrally managed secret material. Raw secret values, tokens, keys, and credentials are not allowed in workflow definitions or fixtures.",
+      "required": [
+        "secret_ref",
+        "purpose"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "secret_ref": {
+          "type": "string",
+          "pattern": "^sec_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "purpose": {
+          "type": "string"
+        }
+      }
+    },
+    "integrationRef": {
+      "type": "object",
+      "required": [
+        "integration_ref",
+        "purpose"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "integration_ref": {
+          "type": "string",
+          "pattern": "^int_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "purpose": {
+          "type": "string"
+        }
+      }
+    },
+    "policyCheck": {
+      "type": "object",
+      "required": [
+        "action",
+        "resource",
+        "decision_ref"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "resource": {
+          "$ref": "#/$defs/resourceRef"
+        },
+        "decision_ref": {
+          "$ref": "#/$defs/refName"
+        }
+      }
+    },
+    "retryPolicy": {
+      "type": "object",
+      "required": [
+        "max_attempts",
+        "backoff"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "backoff": {
+          "type": "string",
+          "enum": [
+            "none",
+            "linear",
+            "exponential"
+          ]
+        },
+        "idempotency_required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "executionDefaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retry": {
+          "$ref": "#/$defs/retryPolicy"
+        }
+      }
+    },
+    "concurrency": {
+      "type": "object",
+      "required": [
+        "scope",
+        "limit",
+        "on_conflict"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "scope": {
+          "type": "string",
+          "enum": [
+            "workflow",
+            "working_group",
+            "trigger"
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "on_conflict": {
+          "type": "string",
+          "enum": [
+            "queue",
+            "cancel_new",
+            "cancel_running"
+          ]
+        }
+      }
+    },
+    "trigger": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "enabled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/workflowLocalId"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "cron",
+            "webhook",
+            "internal_event"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "filters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/expression"
+          }
+        },
+        "cron": {
+          "type": "object",
+          "required": [
+            "schedule",
+            "timezone"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "schedule": {
+              "type": "string",
+              "minLength": 1
+            },
+            "timezone": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "webhook": {
+          "type": "object",
+          "required": [
+            "integration_ref",
+            "signature_verification",
+            "replay_protection"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "integration_ref": {
+              "$ref": "#/$defs/integrationRef"
+            },
+            "signature_verification": {
+              "type": "object",
+              "required": [
+                "required",
+                "algorithm",
+                "secret_ref"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "required": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "algorithm": {
+                  "type": "string",
+                  "enum": [
+                    "hmac-sha256",
+                    "ed25519"
+                  ]
+                },
+                "secret_ref": {
+                  "$ref": "#/$defs/secretRef"
+                },
+                "timestamp_header": {
+                  "type": "string"
+                },
+                "signature_header": {
+                  "type": "string"
+                }
+              }
+            },
+            "replay_protection": {
+              "type": "object",
+              "required": [
+                "required",
+                "dedupe_key",
+                "window_seconds"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "required": {
+                  "type": "boolean",
+                  "const": true
+                },
+                "dedupe_key": {
+                  "type": "string",
+                  "enum": [
+                    "event_id",
+                    "delivery_id",
+                    "signature_digest"
+                  ]
+                },
+                "window_seconds": {
+                  "type": "integer",
+                  "minimum": 60,
+                  "maximum": 86400
+                }
+              }
+            }
+          }
+        },
+        "internal_event": {
+          "type": "object",
+          "required": [
+            "event_type"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "event_type": {
+              "type": "string",
+              "enum": [
+                "issue.created",
+                "issue.updated",
+                "issue.status_changed",
+                "comment.created",
+                "user.created",
+                "working_group.changed",
+                "integration.changed",
+                "skill.changed",
+                "agent.changed",
+                "provider.changed",
+                "usage.limit_reached",
+                "policy.decision_denied",
+                "workflow.completed",
+                "workflow.failed"
+              ]
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "cron"
+              }
+            }
           },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "agent_task",
-              "approval",
-              "webhook",
-              "gateway_request"
+          "then": {
+            "required": [
+              "cron"
             ]
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "webhook"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "webhook"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "internal_event"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "internal_event"
+            ]
+          }
+        }
+      ]
+    },
+    "approvalGate": {
+      "type": "object",
+      "required": [
+        "id",
+        "approver_scope",
+        "required_before",
+        "timeout_seconds",
+        "on_timeout"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/workflowLocalId"
+        },
+        "approver_scope": {
+          "type": "string",
+          "enum": [
+            "workflow_owner",
+            "working_group_admin",
+            "policy_named_role"
+          ]
+        },
+        "required_before": {
+          "type": "string",
+          "enum": [
+            "protected_side_effect",
+            "workflow_activation",
+            "manual_review"
+          ]
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 60
+        },
+        "on_timeout": {
+          "type": "string",
+          "enum": [
+            "deny",
+            "cancel_run"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "job": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "steps"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/workflowLocalId"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "needs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/workflowLocalId"
+          }
+        },
+        "condition": {
+          "$ref": "#/$defs/expression"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retry": {
+          "$ref": "#/$defs/retryPolicy"
+        },
+        "policy": {
+          "$ref": "#/$defs/policyCheck"
+        },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/step"
+          }
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "side_effect"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/workflowLocalId"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "agent_task",
+            "approval_wait",
+            "policy_check",
+            "gateway_request",
+            "integration_call",
+            "mcp_call",
+            "script",
+            "artifact_write",
+            "handoff",
+            "audit_event"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uses": {
+          "$ref": "#/$defs/refName"
+        },
+        "needs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/workflowLocalId"
+          }
+        },
+        "condition": {
+          "$ref": "#/$defs/expression"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retry": {
+          "$ref": "#/$defs/retryPolicy"
+        },
+        "policy": {
+          "$ref": "#/$defs/policyCheck"
+        },
+        "approval_gate_ref": {
+          "$ref": "#/$defs/workflowLocalId"
+        },
+        "secret_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/secretRef"
+          }
+        },
+        "integration_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/integrationRef"
+          }
+        },
+        "with": {
+          "$ref": "#/$defs/nonSecretInputObject"
+        },
+        "side_effect": {
+          "type": "object",
+          "required": [
+            "classification"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "classification": {
+              "type": "string",
+              "enum": [
+                "none",
+                "read",
+                "write",
+                "protected"
+              ]
+            },
+            "description": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "side_effect": {
+                "properties": {
+                  "classification": {
+                    "const": "protected"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "approval_gate_ref"
+            ]
+          }
+        }
+      ]
+    },
+    "nonSecretInputObject": {
+      "type": "object",
+      "description": "Non-secret step inputs. Sensitive values must be represented through secret_refs or integration_refs.",
+      "propertyNames": {
+        "not": {
+          "pattern": "([Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Aa][Cc][Cc][Ee][Ss][Ss][_-]?[Tt][Oo][Kk][Ee][Nn]|[Rr][Ee][Ff][Rr][Ee][Ss][Hh][_-]?[Tt][Oo][Kk][Ee][Nn]|[Pp][Rr][Ii][Vv][Aa][Tt][Ee][_-]?[Kk][Ee][Yy]|[Cc][Ll][Ii][Ee][Nn][Tt][_-]?[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll])"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/nonSecretInputValue"
+      }
+    },
+    "nonSecretInputValue": {
+      "oneOf": [
+        {
+          "type": "string",
+          "not": {
+            "pattern": "([Bb][Ee][Aa][Rr][Ee][Rr]\\s+[A-Za-z0-9._\\-]+|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_\\-]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)"
+          }
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonSecretInputValue"
+          }
+        },
+        {
+          "$ref": "#/$defs/nonSecretInputObject"
+        }
+      ]
+    },
+    "auditEventReference": {
+      "type": "object",
+      "required": [
+        "type",
+        "resource",
+        "when"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "workflow.definition.validated",
+            "workflow.trigger.accepted",
+            "workflow.approval.requested",
+            "workflow.protected_operation.approved",
+            "workflow.protected_operation.denied",
+            "workflow.run.completed",
+            "workflow.run.failed"
+          ]
+        },
+        "resource": {
+          "$ref": "#/$defs/resourceRef"
+        },
+        "when": {
+          "type": "string",
+          "enum": [
+            "validation",
+            "trigger",
+            "approval",
+            "completion"
+          ]
         }
       }
     }
