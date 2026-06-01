@@ -5,6 +5,7 @@ export const commonErrors: TranslationResource = {
   "console.unavailable.detail": "Unable to load TaskOtter console data.",
   "actions.retry": "Retry",
   missingTranslation: "Content unavailable.",
+  redacted: "redacted",
   "status.blocked": "Blocked",
   "status.cancelled": "Cancelled",
   "status.completed": "Completed",

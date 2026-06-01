@@ -3,7 +3,9 @@ export type TranslationResource = Record<string, string>;
 export type TranslationNamespace =
   | "chat"
   | "commonErrors"
+  | "emails"
   | "issues"
+  | "notifications"
   | "settings"
   | "webShell";
 

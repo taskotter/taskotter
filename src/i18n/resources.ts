@@ -16,7 +16,9 @@ const accentMap: Record<string, string> = {
 };
 
 function pseudoLocalize(value: string): string {
-  return `[!! ${value.replace(/[aeiouAEIOU]/g, (char) => accentMap[char] ?? char)} !!]`;
+  return `[!! ${value.replace(/\{(\w+)\}|[aeiouAEIOU]/g, (match, name) =>
+    name ? match : (accentMap[match] ?? match),
+  )} !!]`;
 }
 
 function pseudoNamespace(
@@ -33,7 +35,9 @@ function pseudoNamespace(
 const pseudoEnglish: TranslationResources = {
   chat: pseudoNamespace(en.chat),
   commonErrors: pseudoNamespace(en.commonErrors),
+  emails: pseudoNamespace(en.emails),
   issues: pseudoNamespace(en.issues),
+  notifications: pseudoNamespace(en.notifications),
   settings: pseudoNamespace(en.settings),
   webShell: pseudoNamespace(en.webShell),
 };
