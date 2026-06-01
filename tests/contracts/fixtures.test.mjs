@@ -265,6 +265,68 @@ test("high-risk runtime fixtures stay deny-by-default and metered by capability"
   assert.equal(audit.policy_decision_id, decision.decision_id);
 });
 
+test("runner-sensitive snapshot reconstructs correlation chain without raw secrets", async () => {
+  const usageSchema = await readJson("contracts/schemas/usage-event.schema.json");
+  const auditSchema = await readJson("contracts/schemas/audit-event.schema.json");
+  const snapshot = await readJson(
+    "contracts/fixtures/runner-sensitive-correlation-snapshot.json",
+  );
+  const allEvents = [
+    ...snapshot.timeline_events,
+    ...snapshot.usage_events,
+    ...snapshot.audit_events,
+    ...snapshot.operations_audit_events,
+    ...snapshot.health_events,
+  ];
+  const eventsById = new Map(allEvents.map((event) => [event.id, event]));
+  const [reconstruction] = snapshot.correlation_reconstruction;
+
+  assert.deepEqual(Object.keys(snapshot.scenario_coverage).sort(), [
+    "completion_failure",
+    "credential_use",
+    "denied_egress",
+    "dispatch_accepted",
+    "dispatch_rejected",
+    "quarantine_event",
+    "replay_rejected",
+  ]);
+  for (const eventId of Object.values(snapshot.scenario_coverage)) {
+    assert.ok(eventsById.has(eventId), `${eventId} must exist in snapshot`);
+  }
+
+  assert.deepEqual(reconstruction.flow, [
+    "request",
+    "policy",
+    "dispatch",
+    "runner_result",
+  ]);
+  for (const eventId of reconstruction.ordered_event_ids) {
+    const event = eventsById.get(eventId);
+    assert.ok(event, `${eventId} must be reconstructable`);
+    const envelope = event.envelope ?? event;
+    assert.equal(envelope.correlation_id, reconstruction.correlation_id);
+    assert.equal(envelope.request_id, reconstruction.request_id);
+  }
+
+  for (const usageEvent of snapshot.usage_events) {
+    validate(usageSchema, usageEvent);
+  }
+  for (const auditEvent of snapshot.audit_events) {
+    validate(auditSchema, auditEvent);
+  }
+
+  const { redaction_assertions: redactionAssertions, ...snapshotBody } =
+    snapshot;
+  const serialized = JSON.stringify(snapshotBody).toLowerCase();
+  for (const forbidden of redactionAssertions.forbidden_substrings) {
+    assert.ok(
+      !serialized.includes(forbidden.toLowerCase()),
+      `snapshot must not expose ${forbidden}`,
+    );
+  }
+  assert.equal(snapshot.redaction_policy, "safe_refs_only");
+});
+
 test("usage event schema captures settlement and safe-reference contract", async () => {
   const schema = await readJson("contracts/schemas/usage-event.schema.json");
   const runnerUsage = await readJson(
