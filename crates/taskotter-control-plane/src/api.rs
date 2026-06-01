@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 use crate::{
     audit::{AuditEvent, AuditEventId, CreateAuditEventRequest},
+    authorization::{AuthorizationContext, RoleBinding, WorkingGroupMembership, WorkingGroupRole},
     domain::{
         Comment, CommentId, CreateCommentRequest, CreateIssueRequest, CreateRegistryEntryRequest,
         CreateWorkingGroupRequest, Issue, IssueId, IssueStatus, RegistryEntry, WorkingGroup,
@@ -27,7 +28,10 @@ use crate::{
         RedactionClassification, RunTimelineEventV1, RunTimelineStage, RunTimelineStatusReason,
         UsageContractLink,
     },
-    policy::{BaselinePolicyEvaluator, PolicyDecision, PolicyDecisionRequest, PolicyEvaluator},
+    policy::{
+        BaselinePolicyEvaluator, PolicyActorRef, PolicyDecision, PolicyDecisionRequest,
+        PolicyEvaluator,
+    },
     usage::{
         CostReconciliationStatus, MeteringUnit, QuotaEnforcement, RemoteUsageReportV1,
         ReservationStatus, UsageActorRef, UsageAuditEventV1, UsageEvaluation,
@@ -49,6 +53,9 @@ struct Store {
     issues: Vec<Issue>,
     comments: Vec<Comment>,
     registry_entries: Vec<RegistryEntry>,
+    memberships: Vec<WorkingGroupMembership>,
+    role_bindings: Vec<RoleBinding>,
+    policy_decisions: Vec<PolicyDecision>,
     audit_events: Vec<AuditEvent>,
     usage_events: Vec<UsageAuditEventV1>,
     usage_ledger_entries: Vec<UsageLedgerEntry>,
@@ -58,6 +65,16 @@ struct Store {
     run_timeline_events: Vec<RunTimelineEventV1>,
     operations_audit_events: Vec<OperationsAuditEventV1>,
     operations_health_events: Vec<OperationsHealthEventV1>,
+}
+
+impl Store {
+    fn authorization_context(&self) -> AuthorizationContext {
+        AuthorizationContext {
+            memberships: self.memberships.clone(),
+            role_bindings: self.role_bindings.clone(),
+            delegated_authorities: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -78,6 +95,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/issues", post(create_issue))
         .route("/v1/comments", post(create_comment))
         .route("/v1/registry", post(create_registry_entry))
+        .route("/v1/authorization/memberships", post(create_membership))
+        .route("/v1/authorization/role-bindings", post(create_role_binding))
         .route("/v1/policy/decisions", post(evaluate_policy))
         .route("/v1/usage/evaluate", post(evaluate_usage))
         .route("/v1/usage/events", post(create_usage_event))
@@ -230,6 +249,57 @@ async fn create_registry_entry(
 
 #[utoipa::path(
     post,
+    path = "/v1/authorization/memberships",
+    request_body = WorkingGroupMembership,
+    responses((status = 201, body = WorkingGroupMembership), (status = 400, body = ErrorResponse))
+)]
+async fn create_membership(
+    State(state): State<AppState>,
+    Json(membership): Json<WorkingGroupMembership>,
+) -> Result<(StatusCode, Json<WorkingGroupMembership>), ApiError> {
+    require_non_empty("working_group_id", &membership.working_group_id)?;
+    require_non_empty("actor.id", &membership.actor.id)?;
+    require_non_empty("actor.type", &membership.actor.r#type)?;
+
+    state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal())?
+        .memberships
+        .push(membership.clone());
+
+    Ok((StatusCode::CREATED, Json(membership)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/authorization/role-bindings",
+    request_body = RoleBinding,
+    responses((status = 201, body = RoleBinding), (status = 400, body = ErrorResponse))
+)]
+async fn create_role_binding(
+    State(state): State<AppState>,
+    Json(binding): Json<RoleBinding>,
+) -> Result<(StatusCode, Json<RoleBinding>), ApiError> {
+    require_non_empty("working_group_id", &binding.working_group_id)?;
+    require_non_empty("actor.id", &binding.actor.id)?;
+    require_non_empty("actor.type", &binding.actor.r#type)?;
+    if binding.actions.is_empty() {
+        return Err(ApiError::bad_request("actions is required".to_owned()));
+    }
+
+    state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal())?
+        .role_bindings
+        .push(binding.clone());
+
+    Ok((StatusCode::CREATED, Json(binding)))
+}
+
+#[utoipa::path(
+    post,
     path = "/v1/policy/decisions",
     request_body = PolicyDecisionRequest,
     responses((status = 200, body = PolicyDecision))
@@ -237,8 +307,12 @@ async fn create_registry_entry(
 async fn evaluate_policy(
     State(state): State<AppState>,
     Json(request): Json<PolicyDecisionRequest>,
-) -> Json<PolicyDecision> {
-    Json(state.policy_evaluator.evaluate(&request))
+) -> Result<Json<PolicyDecision>, ApiError> {
+    let mut store = state.store.lock().map_err(|_| ApiError::internal())?;
+    let context = store.authorization_context();
+    let decision = state.policy_evaluator.evaluate(&request, &context);
+    store.policy_decisions.push(decision.clone());
+    Ok(Json(decision))
 }
 
 #[utoipa::path(
@@ -503,6 +577,8 @@ impl IntoResponse for ApiError {
         create_issue,
         create_comment,
         create_registry_entry,
+        create_membership,
+        create_role_binding,
         evaluate_policy,
         evaluate_usage,
         create_usage_event,
@@ -539,8 +615,10 @@ impl IntoResponse for ApiError {
         OperationsSourceSurface,
         PolicyDecision,
         PolicyDecisionRequest,
+        PolicyActorRef,
         RedactionClassification,
         RegistryEntry,
+        RoleBinding,
         RemoteUsageReportV1,
         RunTimelineEventV1,
         RunTimelineStage,
@@ -563,7 +641,9 @@ impl IntoResponse for ApiError {
         UsageSecuritySignalCode,
         UsageSourceSurface,
         UsageSubjectRef,
-        WorkingGroup
+        WorkingGroup,
+        WorkingGroupMembership,
+        WorkingGroupRole
     )),
     tags(
         (name = "control-plane", description = "TaskOtter MVP control plane API")
@@ -582,6 +662,63 @@ mod tests {
 
     use super::*;
 
+    fn add_membership(
+        state: &AppState,
+        working_group_id: &str,
+        actor_type: &str,
+        actor_id: &str,
+        role: WorkingGroupRole,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        state
+            .store
+            .lock()
+            .map_err(|_| "store lock failed")?
+            .memberships
+            .push(WorkingGroupMembership {
+                working_group_id: working_group_id.to_owned(),
+                actor: PolicyActorRef {
+                    r#type: actor_type.to_owned(),
+                    id: actor_id.to_owned(),
+                },
+                role,
+            });
+        Ok(())
+    }
+
+    fn policy_request(
+        actor_id: &str,
+        action: &str,
+        resource_type: &str,
+        resource_id: &str,
+        working_group_id: &str,
+    ) -> Value {
+        json!({
+            "working_group_id": working_group_id,
+            "actor": {
+                "type": "user",
+                "id": actor_id
+            },
+            "action": action,
+            "resource": {
+                "type": resource_type,
+                "id": resource_id,
+                "working_group_id": working_group_id
+            },
+            "correlation_id": "corr_1",
+            "request_id": "req_1",
+            "policy_version": "0.1.0",
+            "policy_snapshot_id": "polsnap_1"
+        })
+    }
+
+    fn policy_http_request(request: Value) -> Result<Request<Body>, Box<dyn std::error::Error>> {
+        Ok(Request::builder()
+            .method("POST")
+            .uri("/v1/policy/decisions")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(request.to_string()))?)
+    }
+
     #[tokio::test]
     async fn exposes_generated_openapi_contract() -> Result<(), Box<dyn std::error::Error>> {
         let response = build_router(AppState::default())
@@ -597,6 +734,8 @@ mod tests {
         let document: Value = serde_json::from_slice(&body)?;
 
         assert!(document["paths"]["/v1/policy/decisions"].is_object());
+        assert!(document["paths"]["/v1/authorization/memberships"].is_object());
+        assert!(document["paths"]["/v1/authorization/role-bindings"].is_object());
         assert!(document["paths"]["/v1/registry"].is_object());
         assert!(document["paths"]["/v1/usage/evaluate"].is_object());
         assert!(document["paths"]["/v1/usage/events"].is_object());
@@ -623,6 +762,8 @@ mod tests {
     #[tokio::test]
     async fn policy_api_returns_gateway_compatible_decision()
     -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        add_membership(&state, "wg_1", "agent", "agent_1", WorkingGroupRole::Admin)?;
         let request = json!({
             "subject": {
                 "user_id": "user_1",
@@ -638,7 +779,7 @@ mod tests {
             "operation": "ai.relay"
         });
 
-        let response = build_router(AppState::default())
+        let response = build_router(state.clone())
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -656,6 +797,124 @@ mod tests {
         assert_eq!(decision["decision_id"], "local-policy:ai.relay");
         assert_eq!(decision["max_tokens"], 8_192);
         assert_eq!(decision["max_cost_micro_usd"], 50_000);
+        assert_eq!(decision["schema_version"], "policy-decision@0.1.0");
+        assert_eq!(decision["reason_code"], "role_matched");
+        assert_eq!(decision["actor"]["type"], "agent");
+        assert_eq!(decision["resource"]["type"], "provider");
+        assert_eq!(decision["effect"], "allow");
+        let store = state.store.lock().map_err(|_| "store lock failed")?;
+        assert_eq!(store.policy_decisions.len(), 1);
+        drop(store);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn policy_api_denies_by_default_without_membership()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let request = policy_request("usr_missing", "issue.read", "issue", "iss_1", "wg_1");
+        let response = build_router(AppState::default())
+            .oneshot(policy_http_request(request)?)
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+        assert_eq!(decision["allowed"], false);
+        assert_eq!(decision["reason_code"], "missing_membership");
+        assert_eq!(decision["effect"], "deny");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn policy_api_denies_cross_working_group_resource()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        add_membership(&state, "wg_1", "user", "usr_1", WorkingGroupRole::Owner)?;
+        let mut request = policy_request("usr_1", "issue.read", "issue", "iss_1", "wg_1");
+        request["resource"]["working_group_id"] = json!("wg_2");
+
+        let response = build_router(state)
+            .oneshot(policy_http_request(request)?)
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+        assert_eq!(decision["allowed"], false);
+        assert_eq!(decision["reason_code"], "cross_working_group_denied");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn policy_api_denies_insufficient_role() -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        add_membership(&state, "wg_1", "user", "usr_1", WorkingGroupRole::Viewer)?;
+        let request = policy_request("usr_1", "comment.create", "comment", "cmt_1", "wg_1");
+
+        let response = build_router(state)
+            .oneshot(policy_http_request(request)?)
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+        assert_eq!(decision["allowed"], false);
+        assert_eq!(decision["reason_code"], "insufficient_role");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn policy_api_denies_delegated_authority_narrowing()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        add_membership(&state, "wg_1", "agent", "agt_1", WorkingGroupRole::Admin)?;
+        let mut request = policy_request("agt_1", "issue.update", "issue", "iss_1", "wg_1");
+        request["actor"]["type"] = json!("agent");
+        request["run_context"] = json!({
+            "run_id": "run_1",
+            "workflow_id": "wfrun_1",
+            "delegated_by": { "type": "user", "id": "usr_1" }
+        });
+
+        let response = build_router(state)
+            .oneshot(policy_http_request(request)?)
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+        assert_eq!(decision["allowed"], false);
+        assert_eq!(decision["reason_code"], "delegated_authority_narrowed");
+        assert_eq!(decision["run_context"]["run_id"], "run_1");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn policy_api_classifies_high_risk_resource_action()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        add_membership(&state, "wg_1", "user", "usr_1", WorkingGroupRole::Member)?;
+        let request = policy_request(
+            "usr_1",
+            "gateway.mcp.session.open",
+            "mcp_server",
+            "mcp_1",
+            "wg_1",
+        );
+
+        let response = build_router(state)
+            .oneshot(policy_http_request(request)?)
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+        assert_eq!(decision["allowed"], false);
+        assert_eq!(decision["reason_code"], "protected_resource_action");
+        assert_eq!(
+            decision["constraints"]["high_risk_capabilities"][0]["effect"],
+            "deny"
+        );
         Ok(())
     }
 
