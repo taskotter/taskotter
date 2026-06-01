@@ -32,7 +32,9 @@ pub struct RoleBinding {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct DelegatedAuthority {
+    pub working_group_id: String,
     pub delegated_by: PolicyActorRef,
+    pub delegated_to: PolicyActorRef,
     pub run_id: String,
     pub actions: Vec<String>,
     #[serde(default)]
@@ -54,6 +56,7 @@ pub struct AuthorizationRequest<'a> {
     pub actor: &'a PolicyActorRef,
     pub action: &'a str,
     pub resource: &'a PolicyResourceRef,
+    pub requires_delegated_authority: bool,
     pub delegated_authority: Option<&'a DelegatedAuthority>,
 }
 
@@ -82,8 +85,21 @@ impl RbacAuthorizer {
         {
             return denied("cross_working_group_denied", None, request.action);
         }
+        if request.resource.working_group_id.is_none()
+            && requires_resource_scope(&request.resource.r#type)
+        {
+            return denied("missing_resource_scope", None, request.action);
+        }
 
+        if request.requires_delegated_authority && request.delegated_authority.is_none() {
+            return denied("delegated_authority_untrusted", None, request.action);
+        }
         if let Some(delegated) = request.delegated_authority {
+            if delegated.working_group_id != request.working_group_id
+                || delegated.delegated_to != *request.actor
+            {
+                return denied("delegated_authority_untrusted", None, request.action);
+            }
             if !delegated
                 .actions
                 .iter()
@@ -230,6 +246,20 @@ fn is_protected_action(action: &str, _resource_type: &str) -> bool {
     )
 }
 
+fn requires_resource_scope(resource_type: &str) -> bool {
+    matches!(
+        resource_type,
+        "issue"
+            | "comment"
+            | "agent"
+            | "integration"
+            | "provider"
+            | "runner"
+            | "mcp_server"
+            | "workflow"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,6 +298,7 @@ mod tests {
                 actor: &user("usr_1"),
                 action: "issue.read",
                 resource: &resource,
+                requires_delegated_authority: false,
                 delegated_authority: None,
             },
             &context,

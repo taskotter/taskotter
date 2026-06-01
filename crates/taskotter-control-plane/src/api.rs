@@ -14,7 +14,10 @@ use uuid::Uuid;
 
 use crate::{
     audit::{AuditEvent, AuditEventId, CreateAuditEventRequest},
-    authorization::{AuthorizationContext, RoleBinding, WorkingGroupMembership, WorkingGroupRole},
+    authorization::{
+        AuthorizationContext, DelegatedAuthority, RoleBinding, WorkingGroupMembership,
+        WorkingGroupRole,
+    },
     domain::{
         Comment, CommentId, CreateCommentRequest, CreateIssueRequest, CreateRegistryEntryRequest,
         CreateWorkingGroupRequest, Issue, IssueId, IssueStatus, RegistryEntry, WorkingGroup,
@@ -55,6 +58,7 @@ struct Store {
     registry_entries: Vec<RegistryEntry>,
     memberships: Vec<WorkingGroupMembership>,
     role_bindings: Vec<RoleBinding>,
+    delegated_authorities: Vec<DelegatedAuthority>,
     policy_decisions: Vec<PolicyDecision>,
     audit_events: Vec<AuditEvent>,
     usage_events: Vec<UsageAuditEventV1>,
@@ -72,7 +76,7 @@ impl Store {
         AuthorizationContext {
             memberships: self.memberships.clone(),
             role_bindings: self.role_bindings.clone(),
-            delegated_authorities: Vec::new(),
+            delegated_authorities: self.delegated_authorities.clone(),
         }
     }
 }
@@ -95,8 +99,6 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/issues", post(create_issue))
         .route("/v1/comments", post(create_comment))
         .route("/v1/registry", post(create_registry_entry))
-        .route("/v1/authorization/memberships", post(create_membership))
-        .route("/v1/authorization/role-bindings", post(create_role_binding))
         .route("/v1/policy/decisions", post(evaluate_policy))
         .route("/v1/usage/evaluate", post(evaluate_usage))
         .route("/v1/usage/events", post(create_usage_event))
@@ -245,57 +247,6 @@ async fn create_registry_entry(
         .push(entry.clone());
 
     Ok((StatusCode::CREATED, Json(entry)))
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/authorization/memberships",
-    request_body = WorkingGroupMembership,
-    responses((status = 201, body = WorkingGroupMembership), (status = 400, body = ErrorResponse))
-)]
-async fn create_membership(
-    State(state): State<AppState>,
-    Json(membership): Json<WorkingGroupMembership>,
-) -> Result<(StatusCode, Json<WorkingGroupMembership>), ApiError> {
-    require_non_empty("working_group_id", &membership.working_group_id)?;
-    require_non_empty("actor.id", &membership.actor.id)?;
-    require_non_empty("actor.type", &membership.actor.r#type)?;
-
-    state
-        .store
-        .lock()
-        .map_err(|_| ApiError::internal())?
-        .memberships
-        .push(membership.clone());
-
-    Ok((StatusCode::CREATED, Json(membership)))
-}
-
-#[utoipa::path(
-    post,
-    path = "/v1/authorization/role-bindings",
-    request_body = RoleBinding,
-    responses((status = 201, body = RoleBinding), (status = 400, body = ErrorResponse))
-)]
-async fn create_role_binding(
-    State(state): State<AppState>,
-    Json(binding): Json<RoleBinding>,
-) -> Result<(StatusCode, Json<RoleBinding>), ApiError> {
-    require_non_empty("working_group_id", &binding.working_group_id)?;
-    require_non_empty("actor.id", &binding.actor.id)?;
-    require_non_empty("actor.type", &binding.actor.r#type)?;
-    if binding.actions.is_empty() {
-        return Err(ApiError::bad_request("actions is required".to_owned()));
-    }
-
-    state
-        .store
-        .lock()
-        .map_err(|_| ApiError::internal())?
-        .role_bindings
-        .push(binding.clone());
-
-    Ok((StatusCode::CREATED, Json(binding)))
 }
 
 #[utoipa::path(
@@ -577,8 +528,6 @@ impl IntoResponse for ApiError {
         create_issue,
         create_comment,
         create_registry_entry,
-        create_membership,
-        create_role_binding,
         evaluate_policy,
         evaluate_usage,
         create_usage_event,
@@ -685,6 +634,31 @@ mod tests {
         Ok(())
     }
 
+    fn add_delegated_authority(
+        state: &AppState,
+        working_group_id: &str,
+        delegated_by: PolicyActorRef,
+        delegated_to: PolicyActorRef,
+        run_id: &str,
+        actions: Vec<&str>,
+        resource_ids: Vec<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        state
+            .store
+            .lock()
+            .map_err(|_| "store lock failed")?
+            .delegated_authorities
+            .push(DelegatedAuthority {
+                working_group_id: working_group_id.to_owned(),
+                delegated_by,
+                delegated_to,
+                run_id: run_id.to_owned(),
+                actions: actions.into_iter().map(str::to_owned).collect(),
+                resource_ids: resource_ids.into_iter().map(str::to_owned).collect(),
+            });
+        Ok(())
+    }
+
     fn policy_request(
         actor_id: &str,
         action: &str,
@@ -734,8 +708,8 @@ mod tests {
         let document: Value = serde_json::from_slice(&body)?;
 
         assert!(document["paths"]["/v1/policy/decisions"].is_object());
-        assert!(document["paths"]["/v1/authorization/memberships"].is_object());
-        assert!(document["paths"]["/v1/authorization/role-bindings"].is_object());
+        assert!(document["paths"]["/v1/authorization/memberships"].is_null());
+        assert!(document["paths"]["/v1/authorization/role-bindings"].is_null());
         assert!(document["paths"]["/v1/registry"].is_object());
         assert!(document["paths"]["/v1/usage/evaluate"].is_object());
         assert!(document["paths"]["/v1/usage/events"].is_object());
@@ -868,12 +842,29 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let state = AppState::default();
         add_membership(&state, "wg_1", "agent", "agt_1", WorkingGroupRole::Admin)?;
+        let user = PolicyActorRef {
+            r#type: "user".to_owned(),
+            id: "usr_1".to_owned(),
+        };
+        let agent = PolicyActorRef {
+            r#type: "agent".to_owned(),
+            id: "agt_1".to_owned(),
+        };
+        add_delegated_authority(
+            &state,
+            "wg_1",
+            user.clone(),
+            agent,
+            "run_1",
+            vec!["issue.read"],
+            vec!["iss_1"],
+        )?;
         let mut request = policy_request("agt_1", "issue.update", "issue", "iss_1", "wg_1");
         request["actor"]["type"] = json!("agent");
         request["run_context"] = json!({
             "run_id": "run_1",
             "workflow_id": "wfrun_1",
-            "delegated_by": { "type": "user", "id": "usr_1" }
+            "delegated_by": user
         });
 
         let response = build_router(state)
@@ -886,6 +877,133 @@ mod tests {
         assert_eq!(decision["allowed"], false);
         assert_eq!(decision["reason_code"], "delegated_authority_narrowed");
         assert_eq!(decision["run_context"]["run_id"], "run_1");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn policy_api_denies_forged_delegated_actor_chain()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        add_membership(&state, "wg_1", "agent", "agt_1", WorkingGroupRole::Admin)?;
+        let mut request = policy_request("agt_1", "issue.update", "issue", "iss_1", "wg_1");
+        request["actor"]["type"] = json!("agent");
+        request["delegated_actor_chain"] = json!([{ "type": "user", "id": "usr_1" }]);
+        request["run_context"] = json!({
+            "run_id": "run_forged",
+            "workflow_id": "wfrun_1",
+            "delegated_by": { "type": "user", "id": "usr_1" }
+        });
+
+        let response = build_router(state)
+            .oneshot(policy_http_request(request)?)
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+        assert_eq!(decision["allowed"], false);
+        assert_eq!(decision["reason_code"], "delegated_authority_untrusted");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn policy_api_rejects_wrong_run_delegated_authority_grant()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        add_membership(&state, "wg_1", "agent", "agt_1", WorkingGroupRole::Admin)?;
+        let user = PolicyActorRef {
+            r#type: "user".to_owned(),
+            id: "usr_1".to_owned(),
+        };
+        let agent = PolicyActorRef {
+            r#type: "agent".to_owned(),
+            id: "agt_1".to_owned(),
+        };
+        add_delegated_authority(
+            &state,
+            "wg_1",
+            user.clone(),
+            agent,
+            "run_trusted",
+            vec!["issue.update"],
+            vec!["iss_1"],
+        )?;
+        let mut request = policy_request("agt_1", "issue.update", "issue", "iss_1", "wg_1");
+        request["actor"]["type"] = json!("agent");
+        request["run_context"] = json!({
+            "run_id": "run_forged",
+            "delegated_by": user
+        });
+
+        let response = build_router(state)
+            .oneshot(policy_http_request(request)?)
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+        assert_eq!(decision["allowed"], false);
+        assert_eq!(decision["reason_code"], "delegated_authority_untrusted");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn authz_mutation_endpoints_are_not_publicly_routed()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let self_grant = json!({
+            "working_group_id": "wg_1",
+            "actor": { "type": "user", "id": "usr_attacker" },
+            "role": "owner"
+        });
+
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/authorization/memberships")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(self_grant.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let role_binding_self_grant = json!({
+            "working_group_id": "wg_1",
+            "actor": { "type": "user", "id": "usr_attacker" },
+            "actions": ["runner.job.execute"]
+        });
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/authorization/role-bindings")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(role_binding_self_grant.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn policy_api_denies_object_resource_without_working_group_scope()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        add_membership(&state, "wg_1", "user", "usr_1", WorkingGroupRole::Owner)?;
+        let mut request = policy_request("usr_1", "issue.read", "issue", "iss_1", "wg_1");
+        if let Some(resource) = request["resource"].as_object_mut() {
+            resource.remove("working_group_id");
+        }
+
+        let response = build_router(state)
+            .oneshot(policy_http_request(request)?)
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+        assert_eq!(decision["allowed"], false);
+        assert_eq!(decision["reason_code"], "missing_resource_scope");
         Ok(())
     }
 

@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::authorization::{
-    AuthorizationContext, AuthorizationRequest, DelegatedAuthority, RbacAuthorizer,
-};
+use crate::authorization::{AuthorizationContext, AuthorizationRequest, RbacAuthorizer};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct PolicySubject {
@@ -203,20 +201,18 @@ impl PolicyEvaluator for BaselinePolicyEvaluator {
         context: &AuthorizationContext,
     ) -> PolicyDecision {
         let normalized = NormalizedPolicyRequest::from(request);
+        let requires_delegated_authority = normalized
+            .run_context
+            .as_ref()
+            .is_some_and(|run_context| run_context.delegated_by.is_some());
         let delegated_authority = normalized.run_context.as_ref().and_then(|run_context| {
-            run_context
-                .delegated_by
-                .as_ref()
-                .map(|delegated_by| DelegatedAuthority {
-                    delegated_by: delegated_by.clone(),
-                    run_id: run_context.run_id.clone(),
-                    actions: request
-                        .delegated_actor_chain
-                        .iter()
-                        .map(|_| normalized.action.clone())
-                        .collect(),
-                    resource_ids: vec![normalized.resource.id.clone()],
-                })
+            let delegated_by = run_context.delegated_by.as_ref()?;
+            context.delegated_authorities.iter().find(|grant| {
+                grant.working_group_id == normalized.working_group_id
+                    && grant.delegated_by == *delegated_by
+                    && grant.delegated_to == normalized.actor
+                    && grant.run_id == run_context.run_id
+            })
         });
         let authz = self.authorizer.authorize(
             &AuthorizationRequest {
@@ -224,7 +220,8 @@ impl PolicyEvaluator for BaselinePolicyEvaluator {
                 actor: &normalized.actor,
                 action: &normalized.action,
                 resource: &normalized.resource,
-                delegated_authority: delegated_authority.as_ref(),
+                requires_delegated_authority,
+                delegated_authority,
             },
             context,
         );
