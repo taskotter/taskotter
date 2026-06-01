@@ -62,5 +62,16 @@ export function createI18n(resolvedLocale: ResolvedLocale) {
         timeZone: resolvedLocale.timeZone,
       }).format(date);
     },
+    formatNumber(value: number): string {
+      return new Intl.NumberFormat(resolvedLocale.formattingLocale).format(
+        value,
+      );
+    },
+    formatCurrency(value: number, currency = "USD"): string {
+      return new Intl.NumberFormat(resolvedLocale.formattingLocale, {
+        currency,
+        style: "currency",
+      }).format(value);
+    },
   };
 }
