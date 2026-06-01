@@ -1,0 +1,180 @@
+{
+  "schema_version": "policy-composition-fixture@0.1.0",
+  "policy_version": "0.1.0",
+  "policy_snapshot_id": "polsnap_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "semantics": "and",
+  "deny_precedence": true,
+  "runner_gateway_decision_contract": "policy-decision@0.1.0",
+  "default_quota": {
+    "max_tokens": 8192,
+    "max_cost_micro_usd": 50000,
+    "ttl_seconds": 300
+  },
+  "cases": [
+    {
+      "name": "owner-role-allows-issue-read",
+      "actor": {
+        "type": "user",
+        "id": "usr_owner"
+      },
+      "identity": "user",
+      "role": "owner",
+      "action": "issue.read",
+      "resource": {
+        "type": "issue",
+        "id": "iss_fixture"
+      },
+      "inputs": {
+        "explicit_deny": false,
+        "quota_available": true,
+        "approval_required": false,
+        "admin_override": false
+      },
+      "expected": {
+        "effect": "allow",
+        "reason_code": "role_matched",
+        "tool_scopes": ["repo:read", "repo:write"],
+        "high_risk_capability_effect": null,
+        "approval_ref": null
+      }
+    },
+    {
+      "name": "explicit-deny-overrides-owner-role",
+      "actor": {
+        "type": "user",
+        "id": "usr_owner"
+      },
+      "identity": "user",
+      "role": "owner",
+      "action": "issue.read",
+      "resource": {
+        "type": "issue",
+        "id": "iss_fixture"
+      },
+      "inputs": {
+        "explicit_deny": true,
+        "quota_available": true,
+        "approval_required": false,
+        "admin_override": false
+      },
+      "expected": {
+        "effect": "deny",
+        "reason_code": "legacy_policy_denied",
+        "tool_scopes": [],
+        "high_risk_capability_effect": null,
+        "approval_ref": null
+      }
+    },
+    {
+      "name": "workflow-agent-delegation-and-role-binding-allow-provider",
+      "actor": {
+        "type": "agent",
+        "id": "agt_workflow"
+      },
+      "identity": "agent",
+      "role": "member",
+      "workflow_id": "wf_fixture",
+      "action": "provider.invoke",
+      "resource": {
+        "type": "provider",
+        "id": "prv_fixture"
+      },
+      "inputs": {
+        "explicit_deny": false,
+        "delegated_authority": true,
+        "role_binding": true,
+        "quota_available": true,
+        "approval_required": false,
+        "admin_override": false
+      },
+      "expected": {
+        "effect": "allow",
+        "reason_code": "role_binding_matched",
+        "tool_scopes": ["repo:read", "repo:write"],
+        "high_risk_capability_effect": "allow",
+        "approval_ref": null
+      }
+    },
+    {
+      "name": "service-admin-override-allows-protected-runner-action",
+      "actor": {
+        "type": "service",
+        "id": "svc_runner"
+      },
+      "identity": "service",
+      "role": "admin",
+      "action": "runner.register",
+      "resource": {
+        "type": "runner",
+        "id": "runr_fixture"
+      },
+      "inputs": {
+        "explicit_deny": false,
+        "quota_available": true,
+        "approval_required": false,
+        "admin_override": true
+      },
+      "expected": {
+        "effect": "allow",
+        "reason_code": "protected_action_role_matched",
+        "tool_scopes": ["repo:read", "repo:write"],
+        "high_risk_capability_effect": "allow",
+        "approval_ref": null
+      }
+    },
+    {
+      "name": "member-protected-provider-action-needs-approval-or-binding",
+      "actor": {
+        "type": "user",
+        "id": "usr_member"
+      },
+      "identity": "user",
+      "role": "member",
+      "action": "provider.invoke",
+      "resource": {
+        "type": "provider",
+        "id": "prv_restricted"
+      },
+      "inputs": {
+        "explicit_deny": false,
+        "quota_available": true,
+        "approval_required": true,
+        "admin_override": false
+      },
+      "expected": {
+        "effect": "deny",
+        "reason_code": "protected_resource_action",
+        "tool_scopes": [],
+        "high_risk_capability_effect": "deny",
+        "approval_ref": "approval_required_before_paid_runtime"
+      }
+    },
+    {
+      "name": "viewer-role-denies-comment-create",
+      "actor": {
+        "type": "user",
+        "id": "usr_viewer"
+      },
+      "identity": "user",
+      "role": "viewer",
+      "action": "comment.create",
+      "resource": {
+        "type": "comment",
+        "id": "cmt_fixture"
+      },
+      "inputs": {
+        "explicit_deny": false,
+        "quota_available": true,
+        "approval_required": false,
+        "admin_override": false
+      },
+      "expected": {
+        "effect": "deny",
+        "reason_code": "insufficient_role",
+        "tool_scopes": [],
+        "high_risk_capability_effect": null,
+        "approval_ref": null
+      }
+    }
+  ]
+}

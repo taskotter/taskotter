@@ -1,0 +1,42 @@
+{
+  "schema_version": "policy-decision@0.1.0",
+  "decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EA",
+  "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "actor": {
+    "type": "service",
+    "id": "svc_runner"
+  },
+  "action": "runner.register",
+  "resource": {
+    "type": "runner",
+    "id": "runr_fixture"
+  },
+  "effect": "allow",
+  "policy_version": "0.1.0",
+  "policy_snapshot_id": "polsnap_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "reason_code": "protected_action_role_matched",
+  "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "provenance": {
+    "source": "control_plane",
+    "evaluated_by": "policy_engine",
+    "policy_bundle_ref": "policy-bundle/taskotter-mvp/0.1.0"
+  },
+  "evaluated_at": "2026-01-01T00:00:00.000Z",
+  "ttl_seconds": 300,
+  "constraints": {
+    "network_zones": ["default"],
+    "tool_scopes": ["repo:read", "repo:write"],
+    "provider_model_ids": [],
+    "max_runtime_seconds": 1800,
+    "high_risk_capabilities": [
+      {
+        "capability": "gateway.hosted_mcp_billing",
+        "feature_flag": "gateway.hosted_mcp_billing.enabled",
+        "enabled": true,
+        "effect": "allow",
+        "metering_unit": "hosted_mcp_runtime_ms"
+      }
+    ]
+  }
+}

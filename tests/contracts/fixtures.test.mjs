@@ -205,6 +205,14 @@ test("runtime fixtures match their canonical schemas", async () => {
       "contracts/fixtures/policy-decision.allow.runner-job.json",
     ],
     [
+      "contracts/schemas/policy-decision.schema.json",
+      "contracts/fixtures/policy-decision.allow.composition-service-admin.json",
+    ],
+    [
+      "contracts/schemas/policy-decision.schema.json",
+      "contracts/fixtures/policy-decision.deny.composition-explicit-deny.json",
+    ],
+    [
       "contracts/schemas/usage-event.schema.json",
       "contracts/fixtures/usage-event.gateway-request.json",
     ],
@@ -239,6 +247,76 @@ test("runtime fixtures match their canonical schemas", async () => {
   }
 });
 
+test("policy composition decision snapshots stay runner/gateway compatible", async () => {
+  const schema = await readJson(
+    "contracts/schemas/policy-decision.schema.json",
+  );
+  const matrix = await readJson(
+    "contracts/fixtures/policy-composition.matrix.json",
+  );
+  const snapshots = [
+    await readJson(
+      "contracts/fixtures/policy-decision.deny.composition-explicit-deny.json",
+    ),
+    await readJson(
+      "contracts/fixtures/policy-decision.allow.composition-service-admin.json",
+    ),
+  ];
+  const matrixCases = new Map(
+    matrix.cases.map((testCase) => [testCase.expected.reason_code, testCase]),
+  );
+
+  for (const snapshot of snapshots) {
+    validate(schema, snapshot);
+    assert.equal(
+      snapshot.schema_version,
+      matrix.runner_gateway_decision_contract,
+    );
+    assert.equal(snapshot.policy_version, matrix.policy_version);
+    assert.equal(snapshot.policy_snapshot_id, matrix.policy_snapshot_id);
+    assert.equal(snapshot.ttl_seconds, matrix.default_quota.ttl_seconds);
+    assert.ok(
+      matrixCases.has(snapshot.reason_code),
+      `${snapshot.reason_code} must be backed by the composition matrix`,
+    );
+
+    const matrixCase = matrixCases.get(snapshot.reason_code);
+    assert.equal(snapshot.effect, matrixCase.expected.effect);
+    assert.deepEqual(
+      snapshot.constraints.tool_scopes,
+      matrixCase.expected.tool_scopes,
+    );
+    assert.ok(
+      ["user", "agent", "service"].includes(snapshot.actor.type),
+      "policy decision actor must remain compatible with runner/gateway consumers",
+    );
+  }
+
+  const explicitDeny = snapshots.find(
+    (snapshot) => snapshot.reason_code === "legacy_policy_denied",
+  );
+  assert.equal(explicitDeny.actor.type, "user");
+  assert.equal(explicitDeny.effect, "deny");
+  assert.deepEqual(explicitDeny.constraints.provider_model_ids, []);
+  assert.ok(
+    !Object.hasOwn(explicitDeny.constraints, "high_risk_capabilities"),
+    "ordinary explicit deny snapshot must not imply a protected runtime gate",
+  );
+
+  const serviceAdmin = snapshots.find(
+    (snapshot) => snapshot.reason_code === "protected_action_role_matched",
+  );
+  const [gate] = serviceAdmin.constraints.high_risk_capabilities;
+  assert.equal(serviceAdmin.actor.type, "service");
+  assert.equal(serviceAdmin.effect, "allow");
+  assert.equal(gate.enabled, true);
+  assert.equal(gate.effect, "allow");
+  assert.ok(
+    !Object.hasOwn(gate, "approval_ref"),
+    "allowed admin override snapshot must not carry an approval-required ref",
+  );
+});
+
 test("high-risk runtime fixtures stay deny-by-default and metered by capability", async () => {
   const decision = await readJson(
     "contracts/fixtures/policy-decision.deny.high-risk-runtime.json",
@@ -263,6 +341,93 @@ test("high-risk runtime fixtures stay deny-by-default and metered by capability"
   assert.equal(audit.payload.runtime_capability, gate.capability);
   assert.equal(audit.payload.feature_flag, gate.feature_flag);
   assert.equal(audit.policy_decision_id, decision.decision_id);
+});
+
+test("policy composition matrix fixes deny precedence and AND semantics", async () => {
+  const matrix = await readJson(
+    "contracts/fixtures/policy-composition.matrix.json",
+  );
+
+  assert.equal(matrix.schema_version, "policy-composition-fixture@0.1.0");
+  assert.equal(
+    matrix.runner_gateway_decision_contract,
+    "policy-decision@0.1.0",
+  );
+  assert.equal(matrix.semantics, "and");
+  assert.equal(matrix.deny_precedence, true);
+  assert.deepEqual(matrix.default_quota, {
+    max_tokens: 8192,
+    max_cost_micro_usd: 50000,
+    ttl_seconds: 300,
+  });
+
+  const cases = new Map(
+    matrix.cases.map((testCase) => [testCase.name, testCase]),
+  );
+  for (const expectedCase of [
+    "owner-role-allows-issue-read",
+    "explicit-deny-overrides-owner-role",
+    "workflow-agent-delegation-and-role-binding-allow-provider",
+    "service-admin-override-allows-protected-runner-action",
+    "member-protected-provider-action-needs-approval-or-binding",
+    "viewer-role-denies-comment-create",
+  ]) {
+    assert.ok(cases.has(expectedCase), `${expectedCase} must be covered`);
+  }
+
+  const explicitDeny = cases.get("explicit-deny-overrides-owner-role");
+  assert.equal(explicitDeny.role, "owner");
+  assert.equal(explicitDeny.inputs.explicit_deny, true);
+  assert.equal(explicitDeny.inputs.quota_available, true);
+  assert.equal(explicitDeny.expected.effect, "deny");
+  assert.equal(explicitDeny.expected.reason_code, "legacy_policy_denied");
+
+  const approvalRequired = cases.get(
+    "member-protected-provider-action-needs-approval-or-binding",
+  );
+  assert.equal(approvalRequired.inputs.approval_required, true);
+  assert.equal(approvalRequired.expected.high_risk_capability_effect, "deny");
+  assert.equal(
+    approvalRequired.expected.approval_ref,
+    "approval_required_before_paid_runtime",
+  );
+
+  const workflowAgent = cases.get(
+    "workflow-agent-delegation-and-role-binding-allow-provider",
+  );
+  assert.equal(workflowAgent.actor.type, "agent");
+  assert.equal(workflowAgent.inputs.delegated_authority, true);
+  assert.equal(workflowAgent.inputs.role_binding, true);
+  assert.equal(workflowAgent.expected.reason_code, "role_binding_matched");
+
+  const serviceAdmin = cases.get(
+    "service-admin-override-allows-protected-runner-action",
+  );
+  assert.equal(serviceAdmin.actor.type, "service");
+  assert.equal(serviceAdmin.inputs.admin_override, true);
+  assert.equal(serviceAdmin.expected.high_risk_capability_effect, "allow");
+
+  for (const testCase of matrix.cases) {
+    assert.ok(
+      ["user", "agent", "service"].includes(testCase.actor.type),
+      `${testCase.name} must use a runner/gateway-compatible actor type`,
+    );
+    assert.ok(
+      ["allow", "deny"].includes(testCase.expected.effect),
+      `${testCase.name} must use a canonical policy effect`,
+    );
+    assert.ok(
+      testCase.expected.reason_code,
+      `${testCase.name} must pin a reason code`,
+    );
+    if (testCase.expected.effect === "deny") {
+      assert.deepEqual(
+        testCase.expected.tool_scopes,
+        [],
+        `${testCase.name} must not grant tool scopes when denied`,
+      );
+    }
+  }
 });
 
 test("usage event schema captures settlement and safe-reference contract", async () => {

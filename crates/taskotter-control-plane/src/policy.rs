@@ -389,7 +389,9 @@ fn constraints_for(
 
 #[cfg(test)]
 mod tests {
-    use crate::authorization::{WorkingGroupMembership, WorkingGroupRole};
+    use crate::authorization::{
+        DelegatedAuthority, RoleBinding, WorkingGroupMembership, WorkingGroupRole,
+    };
 
     use super::*;
 
@@ -420,20 +422,238 @@ mod tests {
         assert_eq!(decision.reason_code, "legacy_policy_denied");
     }
 
+    #[test]
+    fn explicit_deny_precedes_role_and_admin_allows() {
+        let evaluator = BaselinePolicyEvaluator::default();
+        let context = AuthorizationContext {
+            memberships: vec![
+                membership(user("usr_1"), WorkingGroupRole::Owner),
+                membership(user("usr_admin"), WorkingGroupRole::Admin),
+            ],
+            ..AuthorizationContext::default()
+        };
+
+        let denied_subject = evaluator.evaluate(
+            &PolicyDecisionRequest {
+                subject: Some(PolicySubject {
+                    user_id: "denied".to_owned(),
+                    working_group_id: "wg_1".to_owned(),
+                    agent_id: None,
+                    workflow_id: None,
+                }),
+                ..policy_request()
+            },
+            &context,
+        );
+        assert!(!denied_subject.allowed);
+        assert_eq!(denied_subject.effect, PolicyEffect::Deny);
+        assert_eq!(denied_subject.reason_code, "legacy_policy_denied");
+
+        let disabled_provider = evaluator.evaluate(
+            &PolicyDecisionRequest {
+                actor: Some(user("usr_admin")),
+                action: Some("gateway.mcp.session.open".to_owned()),
+                resource: Some(resource("mcp_server", "mcp_1")),
+                provider: Some(ProviderRef {
+                    provider_id: "disabled_mcp_hosted".to_owned(),
+                    kind: ProviderKind::Hosted,
+                    model: "model_default".to_owned(),
+                    endpoint_id: None,
+                }),
+                ..policy_request()
+            },
+            &context,
+        );
+        assert!(!disabled_provider.allowed);
+        assert_eq!(disabled_provider.effect, PolicyEffect::Deny);
+        assert_eq!(disabled_provider.reason_code, "legacy_policy_denied");
+        assert_eq!(
+            disabled_provider.constraints.tool_scopes,
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            disabled_provider
+                .constraints
+                .high_risk_capabilities
+                .first()
+                .map(|gate| (&gate.enabled, &gate.effect, gate.approval_ref.as_deref())),
+            Some((
+                &false,
+                &PolicyEffect::Deny,
+                Some("approval_required_before_paid_runtime")
+            ))
+        );
+    }
+
+    #[test]
+    fn composed_policy_matrix_covers_identity_roles_delegation_approval_and_cost() {
+        let evaluator = BaselinePolicyEvaluator::default();
+        let service_actor = actor("service", "svc_runner");
+        let agent_actor = actor("agent", "agt_workflow");
+        let delegated_by = user("usr_1");
+
+        let context = AuthorizationContext {
+            memberships: vec![
+                membership(user("usr_1"), WorkingGroupRole::Owner),
+                membership(user("usr_viewer"), WorkingGroupRole::Viewer),
+                membership(agent_actor.clone(), WorkingGroupRole::Member),
+                membership(service_actor.clone(), WorkingGroupRole::Admin),
+                membership(user("usr_member"), WorkingGroupRole::Member),
+            ],
+            role_bindings: vec![RoleBinding {
+                working_group_id: "wg_1".to_owned(),
+                actor: agent_actor.clone(),
+                resource_type: Some("provider".to_owned()),
+                resource_id: Some("prv_1".to_owned()),
+                actions: vec!["provider.invoke".to_owned()],
+            }],
+            delegated_authorities: vec![DelegatedAuthority {
+                working_group_id: "wg_1".to_owned(),
+                delegated_by: delegated_by.clone(),
+                delegated_to: agent_actor.clone(),
+                run_id: "run_1".to_owned(),
+                actions: vec!["provider.invoke".to_owned()],
+                resource_ids: vec!["prv_1".to_owned()],
+            }],
+        };
+
+        struct Case {
+            name: &'static str,
+            request: PolicyDecisionRequest,
+            allowed: bool,
+            reason_code: &'static str,
+            high_risk_gate: Option<PolicyEffect>,
+            approval_ref: Option<&'static str>,
+        }
+
+        let cases = vec![
+            Case {
+                name: "owner role allows ordinary issue read",
+                request: policy_request(),
+                allowed: true,
+                reason_code: "role_matched",
+                high_risk_gate: None,
+                approval_ref: None,
+            },
+            Case {
+                name: "viewer role denies mutating comment action",
+                request: PolicyDecisionRequest {
+                    actor: Some(user("usr_viewer")),
+                    action: Some("comment.create".to_owned()),
+                    resource: Some(resource("comment", "cmt_1")),
+                    ..policy_request()
+                },
+                allowed: false,
+                reason_code: "insufficient_role",
+                high_risk_gate: None,
+                approval_ref: None,
+            },
+            Case {
+                name: "service admin override allows protected runner action",
+                request: PolicyDecisionRequest {
+                    actor: Some(service_actor),
+                    action: Some("runner.register".to_owned()),
+                    resource: Some(resource("runner", "runr_1")),
+                    ..policy_request()
+                },
+                allowed: true,
+                reason_code: "protected_action_role_matched",
+                high_risk_gate: Some(PolicyEffect::Allow),
+                approval_ref: None,
+            },
+            Case {
+                name: "workflow agent uses delegated authority and scoped binding",
+                request: PolicyDecisionRequest {
+                    actor: Some(agent_actor),
+                    run_context: Some(PolicyRunContext {
+                        run_id: "run_1".to_owned(),
+                        workflow_id: Some("wf_1".to_owned()),
+                        delegated_by: Some(delegated_by),
+                    }),
+                    resource: Some(resource("provider", "prv_1")),
+                    action: Some("provider.invoke".to_owned()),
+                    ..policy_request()
+                },
+                allowed: true,
+                reason_code: "role_binding_matched",
+                high_risk_gate: Some(PolicyEffect::Allow),
+                approval_ref: None,
+            },
+            Case {
+                name: "member protected provider action requires approval or binding",
+                request: PolicyDecisionRequest {
+                    actor: Some(user("usr_member")),
+                    resource: Some(resource("provider", "prv_2")),
+                    action: Some("provider.invoke".to_owned()),
+                    ..policy_request()
+                },
+                allowed: false,
+                reason_code: "protected_resource_action",
+                high_risk_gate: Some(PolicyEffect::Deny),
+                approval_ref: Some("approval_required_before_paid_runtime"),
+            },
+        ];
+
+        for case in cases {
+            let decision = evaluator.evaluate(&case.request, &context);
+            assert_eq!(decision.allowed, case.allowed, "{}", case.name);
+            assert_eq!(decision.reason_code, case.reason_code, "{}", case.name);
+            assert_eq!(decision.max_tokens, Some(8_192), "{}", case.name);
+            assert_eq!(decision.max_cost_micro_usd, Some(50_000), "{}", case.name);
+            assert_eq!(
+                decision.effect,
+                if case.allowed {
+                    PolicyEffect::Allow
+                } else {
+                    PolicyEffect::Deny
+                },
+                "{}",
+                case.name
+            );
+
+            let gate = decision.constraints.high_risk_capabilities.first();
+            assert_eq!(
+                gate.map(|gate| gate.effect.clone()),
+                case.high_risk_gate,
+                "{}",
+                case.name
+            );
+            assert_eq!(
+                gate.and_then(|gate| gate.approval_ref.as_deref()),
+                case.approval_ref,
+                "{}",
+                case.name
+            );
+        }
+    }
+
+    #[test]
+    fn policy_evaluation_uses_current_authorization_context_without_stale_cache() {
+        let evaluator = BaselinePolicyEvaluator::default();
+        let request = policy_request();
+
+        let allowed = evaluator.evaluate(
+            &request,
+            &AuthorizationContext {
+                memberships: vec![membership(user("usr_1"), WorkingGroupRole::Owner)],
+                ..AuthorizationContext::default()
+            },
+        );
+        let revoked = evaluator.evaluate(&request, &AuthorizationContext::default());
+
+        assert!(allowed.allowed);
+        assert_eq!(allowed.reason_code, "role_matched");
+        assert!(!revoked.allowed);
+        assert_eq!(revoked.reason_code, "missing_membership");
+    }
+
     fn policy_request() -> PolicyDecisionRequest {
         PolicyDecisionRequest {
             working_group_id: Some("wg_1".to_owned()),
-            actor: Some(PolicyActorRef {
-                r#type: "user".to_owned(),
-                id: "usr_1".to_owned(),
-            }),
+            actor: Some(user("usr_1")),
             delegated_actor_chain: Vec::new(),
             run_context: None,
-            resource: Some(PolicyResourceRef {
-                r#type: "issue".to_owned(),
-                id: "iss_1".to_owned(),
-                working_group_id: Some("wg_1".to_owned()),
-            }),
+            resource: Some(resource("issue", "iss_1")),
             action: Some("issue.read".to_owned()),
             correlation_id: Some("corr_1".to_owned()),
             request_id: Some("req_1".to_owned()),
@@ -449,15 +669,35 @@ mod tests {
 
     fn auth_context() -> AuthorizationContext {
         AuthorizationContext {
-            memberships: vec![WorkingGroupMembership {
-                working_group_id: "wg_1".to_owned(),
-                actor: PolicyActorRef {
-                    r#type: "user".to_owned(),
-                    id: "usr_1".to_owned(),
-                },
-                role: WorkingGroupRole::Owner,
-            }],
+            memberships: vec![membership(user("usr_1"), WorkingGroupRole::Owner)],
             ..AuthorizationContext::default()
+        }
+    }
+
+    fn membership(actor: PolicyActorRef, role: WorkingGroupRole) -> WorkingGroupMembership {
+        WorkingGroupMembership {
+            working_group_id: "wg_1".to_owned(),
+            actor,
+            role,
+        }
+    }
+
+    fn user(id: &str) -> PolicyActorRef {
+        actor("user", id)
+    }
+
+    fn actor(r#type: &str, id: &str) -> PolicyActorRef {
+        PolicyActorRef {
+            r#type: r#type.to_owned(),
+            id: id.to_owned(),
+        }
+    }
+
+    fn resource(r#type: &str, id: &str) -> PolicyResourceRef {
+        PolicyResourceRef {
+            r#type: r#type.to_owned(),
+            id: id.to_owned(),
+            working_group_id: Some("wg_1".to_owned()),
         }
     }
 }
