@@ -249,7 +249,7 @@ impl PolicyEvaluator for BaselinePolicyEvaluator {
             reason: (!allowed).then(|| "request denied by control-plane policy".to_owned()),
             max_tokens: Some(8_192),
             max_cost_micro_usd: Some(50_000),
-            schema_version: "policy-decision@0.1.0".to_owned(),
+            schema_version: "policy-decision-scaffold@0.1.0".to_owned(),
             working_group_id: normalized.working_group_id,
             actor: normalized.actor,
             delegated_actor_chain: request.delegated_actor_chain.clone(),

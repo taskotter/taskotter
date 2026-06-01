@@ -771,7 +771,7 @@ mod tests {
         assert_eq!(decision["decision_id"], "local-policy:ai.relay");
         assert_eq!(decision["max_tokens"], 8_192);
         assert_eq!(decision["max_cost_micro_usd"], 50_000);
-        assert_eq!(decision["schema_version"], "policy-decision@0.1.0");
+        assert_eq!(decision["schema_version"], "policy-decision-scaffold@0.1.0");
         assert_eq!(decision["reason_code"], "role_matched");
         assert_eq!(decision["actor"]["type"], "agent");
         assert_eq!(decision["resource"]["type"], "provider");
@@ -779,6 +779,42 @@ mod tests {
         let store = state.store.lock().map_err(|_| "store lock failed")?;
         assert_eq!(store.policy_decisions.len(), 1);
         drop(store);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn policy_api_does_not_claim_canonical_policy_decision_contract()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        add_membership(&state, "wg_1", "agent", "agent_1", WorkingGroupRole::Admin)?;
+        let request = json!({
+            "subject": {
+                "user_id": "user_1",
+                "working_group_id": "wg_1",
+                "agent_id": "agent_1"
+            },
+            "provider": {
+                "provider_id": "provider_1",
+                "kind": "open_ai_compatible",
+                "model": "test-model"
+            },
+            "operation": "ai.relay",
+            "correlation_id": "corr_1",
+            "request_id": "req_1",
+            "policy_snapshot_id": "polsnap_local"
+        });
+
+        let response = build_router(state)
+            .oneshot(policy_http_request(request)?)
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+        assert_eq!(decision["schema_version"], "policy-decision-scaffold@0.1.0");
+        assert_ne!(decision["schema_version"], "policy-decision@0.1.0");
+        assert_eq!(decision["decision_id"], "local-policy:ai.relay");
+        assert_eq!(decision["policy_snapshot_id"], "polsnap_local");
         Ok(())
     }
 
