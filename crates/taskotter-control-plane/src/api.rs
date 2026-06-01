@@ -1305,6 +1305,155 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn intake_rejects_expanded_sensitive_markers_without_echoing_raw_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let cases = [
+            (
+                "title",
+                "client_secret fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "client_secret fixture-marker",
+                    "body": "Body",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["Safe"]
+                }),
+            ),
+            (
+                "body",
+                "password fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "Title",
+                    "body": "password fixture-marker",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["Safe"]
+                }),
+            ),
+            (
+                "acceptance_criteria",
+                "raw_log fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "Title",
+                    "body": "Body",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["raw_log fixture-marker"]
+                }),
+            ),
+            (
+                "body",
+                "cookie: fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "Title",
+                    "body": "cookie: fixture-marker",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["Safe"]
+                }),
+            ),
+            (
+                "body",
+                "token fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "Title",
+                    "body": "token fixture-marker",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["Safe"]
+                }),
+            ),
+            (
+                "external_reference",
+                "raw_log/repo",
+                json!({
+                    "source": "github_issue",
+                    "title": "Title",
+                    "body": "Body",
+                    "source_url": "https://github.com/example/repo/issues/8",
+                    "acceptance_criteria": ["Safe"],
+                    "repository": "raw_log/repo",
+                    "issue_number": 8
+                }),
+            ),
+        ];
+
+        for (field, raw_value, input) in cases {
+            let response = build_router(AppState::default())
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/v1/work-items/intake")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(
+                            json!({
+                                "working_group_id": Uuid::new_v4(),
+                                "mode": "preview",
+                                "input": input
+                            })
+                            .to_string(),
+                        ))?,
+                )
+                .await?;
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let body = to_bytes(response.into_body(), usize::MAX).await?;
+            let payload: Value = serde_json::from_slice(&body)?;
+            let serialized = serde_json::to_string(&payload)?;
+
+            assert_eq!(payload["error"]["field_errors"][0]["field"], field);
+            assert_eq!(payload["error"]["support"]["redacted"], true);
+            assert!(!serialized.contains(raw_value));
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn intake_rejects_credential_shaped_source_urls_without_echoing_raw_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let cases = [
+            "https://user:password@example.test/request/1",
+            "https://example.test/request/1?client_secret=fixture-marker",
+            "https://example.test/request/1?secret=fixture-marker",
+        ];
+
+        for raw_url in cases {
+            let response = build_router(AppState::default())
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/v1/work-items/intake")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(
+                            json!({
+                                "working_group_id": Uuid::new_v4(),
+                                "mode": "preview",
+                                "input": {
+                                    "source": "manual",
+                                    "title": "Title",
+                                    "body": "Body",
+                                    "source_url": raw_url,
+                                    "acceptance_criteria": ["Safe"]
+                                }
+                            })
+                            .to_string(),
+                        ))?,
+                )
+                .await?;
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let body = to_bytes(response.into_body(), usize::MAX).await?;
+            let payload: Value = serde_json::from_slice(&body)?;
+            let serialized = serde_json::to_string(&payload)?;
+
+            assert_eq!(payload["error"]["field_errors"][0]["field"], "source_url");
+            assert_eq!(payload["error"]["support"]["redacted"], true);
+            assert!(!serialized.contains(raw_url));
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn validation_errors_return_stable_localization_contract()
     -> Result<(), Box<dyn std::error::Error>> {
         let response = build_router(AppState::default())

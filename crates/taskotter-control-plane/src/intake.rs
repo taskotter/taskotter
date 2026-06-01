@@ -1,3 +1,4 @@
+use http::Uri;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use utoipa::ToSchema;
@@ -197,11 +198,15 @@ fn build_input(
     let body = normalize_required("body", fields.body)?;
     let source_url = normalize_optional_url(fields.source_url)?;
     let acceptance_criteria = normalize_acceptance_criteria(fields.acceptance_criteria)?;
+    let external_reference = fields.external_reference;
 
     reject_sensitive("title", &title)?;
     reject_sensitive("body", &body)?;
     for criterion in &acceptance_criteria {
         reject_sensitive("acceptance_criteria", criterion)?;
+    }
+    if let Some(external_reference) = &external_reference {
+        reject_sensitive("external_reference", external_reference)?;
     }
 
     if body.len() > MAX_BODY_BYTES {
@@ -216,7 +221,7 @@ fn build_input(
         source_url,
         acceptance_criteria,
         risk_tier_hint: fields.risk_tier_hint,
-        external_reference: fields.external_reference,
+        external_reference,
     })
 }
 
@@ -236,8 +241,30 @@ fn normalize_optional_url(value: Option<String>) -> Result<Option<String>, Intak
     if value.is_empty() {
         return Ok(None);
     }
-    if !(value.starts_with("https://") || value.starts_with("http://")) {
+    let parsed = value
+        .parse::<Uri>()
+        .map_err(|_| IntakeValidationError::UnsupportedSourceUrl)?;
+    if !matches!(parsed.scheme_str(), Some("http" | "https")) || parsed.host().is_none() {
         return Err(IntakeValidationError::UnsupportedSourceUrl);
+    }
+    if parsed
+        .authority()
+        .is_some_and(|authority| authority.as_str().contains('@'))
+    {
+        return Err(IntakeValidationError::SensitivePattern {
+            field: "source_url",
+        });
+    }
+    if let Some(query) = parsed.query() {
+        for pair in query.split('&') {
+            let mut parts = pair.splitn(2, '=');
+            if let Some(key) = parts.next() {
+                reject_sensitive("source_url", key)?;
+            }
+            if let Some(value) = parts.next() {
+                reject_sensitive("source_url", value)?;
+            }
+        }
     }
     reject_sensitive("source_url", &value)?;
     Ok(Some(value))
@@ -302,7 +329,15 @@ fn reject_sensitive(field: &'static str, value: &str) -> Result<(), IntakeValida
         "access_token",
         "refresh_token",
         "private_key",
+        "client_secret",
+        "password",
+        "raw_prompt",
+        "raw_log",
+        "artifact_body",
         "-----begin",
+        "cookie:",
+        "secret=",
+        "token",
         "ghp_",
         "github_pat_",
         "sk-",
