@@ -35,6 +35,11 @@ use crate::{
         BaselinePolicyEvaluator, PolicyActorRef, PolicyDecision, PolicyDecisionRequest,
         PolicyEvaluator,
     },
+    review_time::{
+        ReviewBaselineComparison, ReviewBaselineSource, ReviewTelemetryEvaluationRequest,
+        ReviewTelemetryEventKind, ReviewTelemetryEventV1, ReviewTimeMetrics,
+        calculate_review_time_metrics,
+    },
     usage::{
         CostReconciliationStatus, MeteringUnit, QuotaEnforcement, RemoteUsageReportV1,
         ReservationStatus, UsageActorRef, UsageAuditEventV1, UsageEvaluation,
@@ -164,6 +169,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/usage/evaluate", post(evaluate_usage))
         .route("/v1/usage/events", post(create_usage_event))
         .route("/v1/remote/usage-reports", post(create_remote_usage_report))
+        .route("/v1/review-time/evaluate", post(evaluate_review_time))
         .route("/v1/audit/events", post(create_audit_event))
         .route(
             "/v1/operations/timeline/events",
@@ -420,6 +426,20 @@ async fn create_remote_usage_report(
 
 #[utoipa::path(
     post,
+    path = "/v1/review-time/evaluate",
+    request_body = ReviewTelemetryEvaluationRequest,
+    responses((status = 200, body = ReviewTimeMetrics), (status = 400, body = ErrorResponse))
+)]
+async fn evaluate_review_time(
+    SafeJson(request): SafeJson<ReviewTelemetryEvaluationRequest>,
+) -> Result<Json<ReviewTimeMetrics>, ApiError> {
+    let metrics = calculate_review_time_metrics(&request)
+        .map_err(|error| ApiError::invalid_payload_with_reason(&error.to_string()))?;
+    Ok(Json(metrics))
+}
+
+#[utoipa::path(
+    post,
     path = "/v1/audit/events",
     request_body = CreateAuditEventRequest,
     responses((status = 201, body = AuditEvent), (status = 400, body = ErrorResponse))
@@ -639,6 +659,7 @@ impl IntoResponse for ApiError {
         evaluate_usage,
         create_usage_event,
         create_remote_usage_report,
+        evaluate_review_time,
         create_audit_event,
         create_run_timeline_event,
         create_operations_audit_event,
@@ -680,6 +701,12 @@ impl IntoResponse for ApiError {
         PolicyActorRef,
         RedactionClassification,
         RegistryEntry,
+        ReviewBaselineComparison,
+        ReviewBaselineSource,
+        ReviewTelemetryEvaluationRequest,
+        ReviewTelemetryEventKind,
+        ReviewTelemetryEventV1,
+        ReviewTimeMetrics,
         RoleBinding,
         RemoteUsageReportV1,
         RunTimelineEventV1,
@@ -827,6 +854,7 @@ mod tests {
         assert!(document["paths"]["/v1/usage/evaluate"].is_object());
         assert!(document["paths"]["/v1/usage/events"].is_object());
         assert!(document["paths"]["/v1/remote/usage-reports"].is_object());
+        assert!(document["paths"]["/v1/review-time/evaluate"].is_object());
         assert!(document["paths"]["/v1/audit/events"].is_object());
         assert!(document["paths"]["/v1/operations/timeline/events"].is_object());
         assert!(document["paths"]["/v1/operations/audit/events"].is_object());
@@ -1778,6 +1806,33 @@ mod tests {
 
         assert_eq!(report["schema_version"], "remote_usage_report.v1");
         assert_eq!(report["status"], "succeeded");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn review_time_api_evaluates_prototype_fixture() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/review-time/evaluate")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(include_str!(
+                        "../../../contracts/fixtures/review-time-telemetry.prototype.json"
+                    )))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let metrics: Value = serde_json::from_slice(&body)?;
+        assert_eq!(metrics["completed_agent_tasks"], 1);
+        assert_eq!(metrics["human_review_minutes"], 11);
+        assert_eq!(metrics["human_minutes_per_completed_agent_task"], 11);
+        assert_eq!(metrics["rework_loops"], 1);
+        assert_eq!(metrics["missing_stop_events"], 0);
+        assert_eq!(metrics["baseline"]["human_review_minutes"], 38);
         Ok(())
     }
 }

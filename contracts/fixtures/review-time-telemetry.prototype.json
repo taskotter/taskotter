@@ -1,0 +1,100 @@
+{
+  "events": [
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EA",
+      "type": "telemetry.review_time.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-06-01T00:00:00Z",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "task_id": "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "reviewer_ref": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "event": "review_started"
+    },
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EB",
+      "type": "telemetry.review_time.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-06-01T00:01:00Z",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "task_id": "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "reviewer_ref": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "event": "packet_opened"
+    },
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EC",
+      "type": "telemetry.review_time.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-06-01T00:02:00Z",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "task_id": "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "reviewer_ref": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "event": "checklist_reviewed"
+    },
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2ED",
+      "type": "telemetry.review_time.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-06-01T00:03:00Z",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "task_id": "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "reviewer_ref": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "event": "rework_requested"
+    },
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EE",
+      "type": "telemetry.review_time.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-06-01T00:05:00Z",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "task_id": "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "reviewer_ref": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "event": "review_stopped"
+    },
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EF",
+      "type": "telemetry.review_time.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-06-01T00:20:00Z",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "task_id": "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "reviewer_ref": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "event": "review_started"
+    },
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EG",
+      "type": "telemetry.review_time.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-06-01T00:24:00Z",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "task_id": "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "reviewer_ref": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "event": "decision_made"
+    },
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EH",
+      "type": "telemetry.review_time.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-06-01T00:25:00Z",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "task_id": "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "reviewer_ref": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "event": "done_approved"
+    },
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EJ",
+      "type": "telemetry.review_time.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-06-01T00:26:00Z",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "task_id": "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "reviewer_ref": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "event": "review_stopped"
+    }
+  ],
+  "baseline": {
+    "source": "claude_code_github_linear_manual",
+    "completed_agent_tasks": 1,
+    "human_review_minutes": 38,
+    "notes_ref": "fixture_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+  }
+}
