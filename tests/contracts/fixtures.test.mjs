@@ -483,6 +483,72 @@ test("runtime events use the canonical event envelope and required correlation c
   }
 });
 
+test("gateway relay fixture covers client-safe streaming state mapping", async () => {
+  const schema = await readJson(
+    "contracts/schemas/gateway-relay-event.schema.json",
+  );
+  const events = await readJson("contracts/fixtures/gateway-relay-events.json");
+  const eventTypes = new Set();
+
+  for (const event of events) {
+    validate(schema, event);
+    eventTypes.add(event.type);
+    assert.equal(event.version, "0.1.0");
+    assert.equal(event.redaction, "client_safe");
+    assert.ok(!Object.hasOwn(event, "headers"));
+    assert.ok(!Object.hasOwn(event, "credentials"));
+    assert.ok(!Object.hasOwn(event, "raw_provider_metadata"));
+    assert.ok(!Object.hasOwn(event, "raw_payload"));
+  }
+
+  assert.deepEqual(eventTypes, new Set(schema.properties.type.enum));
+  assert.equal(
+    events.find((event) => event.type === "gateway.relay.denied").route
+      .route_type,
+    "denied",
+  );
+});
+
+test("gateway relay schema rejects sensitive provider details", async () => {
+  const [started] = await readJson(
+    "contracts/fixtures/gateway-relay-events.json",
+  );
+  const schemas = [
+    await readJson("contracts/schemas/gateway-relay-event.schema.json"),
+    await readJson("packages/schemas/json/gateway-relay-event.schema.json"),
+  ];
+
+  for (const schema of schemas) {
+    for (const safeMessage of [
+      "authorization: bearer token leaked",
+      "Authorization: Bearer token leaked",
+      "password leaked",
+      "artifact_body leaked",
+      "raw_payload leaked",
+      "credential leaked",
+      "secret leaked",
+      "Set-Cookie leaked",
+    ]) {
+      const unsafe = structuredClone(started);
+      unsafe.payload = {
+        kind: "terminal",
+        reason_code: "internal_gateway_error",
+        safe_message: safeMessage,
+        retryable: false,
+      };
+
+      assert.throws(
+        () => validate(schema, unsafe),
+        /must match exactly one schema/,
+      );
+    }
+
+    const unsafeRoute = structuredClone(started);
+    unsafeRoute.route.policy_decision_id = "poldec_secret_policy_decision";
+    assert.throws(() => validate(schema, unsafeRoute), /forbidden schema/);
+  }
+});
+
 test("policy decisions require provenance and audit correlation fields", async () => {
   const schema = await readJson(
     "contracts/schemas/policy-decision.schema.json",

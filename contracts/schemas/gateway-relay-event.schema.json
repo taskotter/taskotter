@@ -1,0 +1,230 @@
+{
+  "$id": "https://contracts.taskotter.dev/gateway-relay-event.schema.json",
+  "title": "GatewayRelayEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "type",
+    "request_id",
+    "correlation_id",
+    "sequence",
+    "provider",
+    "model",
+    "redaction",
+    "payload"
+  ],
+  "properties": {
+    "version": {
+      "const": "0.1.0"
+    },
+    "type": {
+      "enum": [
+        "gateway.relay.started",
+        "gateway.relay.output_delta",
+        "gateway.relay.tool_call_delta",
+        "gateway.relay.usage_estimate",
+        "gateway.relay.completed",
+        "gateway.relay.cancelled",
+        "gateway.relay.failed",
+        "gateway.relay.denied"
+      ]
+    },
+    "request_id": {
+      "$ref": "#/$defs/opaqueRequestId"
+    },
+    "correlation_id": {
+      "$ref": "#/$defs/opaqueCorrelationId"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "provider": {
+      "$ref": "#/$defs/safeIdentifier"
+    },
+    "model": {
+      "$ref": "#/$defs/safeIdentifier"
+    },
+    "redaction": {
+      "const": "client_safe"
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route_type", "reason_code"],
+      "properties": {
+        "route_type": {
+          "enum": ["primary", "fallback", "denied"]
+        },
+        "reason_code": {
+          "enum": [
+            "explicit_selection",
+            "policy_default",
+            "capability_match",
+            "cost_limit",
+            "latency_preference",
+            "residency_constraint",
+            "runner_local_required",
+            "fallback_after_error",
+            "fallback_after_capacity",
+            "policy_denied"
+          ]
+        },
+        "policy_decision_id": {
+          "$ref": "#/$defs/opaquePolicyDecisionId"
+        }
+      }
+    },
+    "payload": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": {
+              "const": "empty"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "text"],
+          "properties": {
+            "kind": {
+              "const": "output_delta"
+            },
+            "text": {
+              "$ref": "#/$defs/clientSafeText"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "tool_call_id", "name", "arguments_delta"],
+          "properties": {
+            "kind": {
+              "const": "tool_call_delta"
+            },
+            "tool_call_id": {
+              "$ref": "#/$defs/safeIdentifier"
+            },
+            "name": {
+              "$ref": "#/$defs/safeIdentifier"
+            },
+            "arguments_delta": {
+              "$ref": "#/$defs/clientSafeText"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": {
+              "const": "usage_estimate"
+            },
+            "input_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "output_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "total_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "estimated_cost_micros": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "finish_reason"],
+          "properties": {
+            "kind": {
+              "const": "completed"
+            },
+            "finish_reason": {
+              "enum": ["stop", "length", "tool_call", "refusal"]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "reason_code", "safe_message", "retryable"],
+          "properties": {
+            "kind": {
+              "const": "terminal"
+            },
+            "reason_code": {
+              "enum": [
+                "client_cancelled",
+                "policy_denied",
+                "usage_limit_reached",
+                "provider_timeout",
+                "provider_rate_limited",
+                "provider_unavailable",
+                "malformed_provider_stream",
+                "internal_gateway_error"
+              ]
+            },
+            "safe_message": {
+              "$ref": "#/$defs/clientSafeText"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "upstream_status": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 599
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "opaqueRequestId": {
+      "type": "string",
+      "pattern": "^req_[A-Za-z0-9_:-]{1,120}$"
+    },
+    "opaqueCorrelationId": {
+      "type": "string",
+      "pattern": "^corr_[A-Za-z0-9_:-]{1,120}$"
+    },
+    "opaquePolicyDecisionId": {
+      "type": "string",
+      "pattern": "^poldec_[A-Za-z0-9_:-]{1,120}$",
+      "not": {
+        "pattern": "([Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Aa][Cc][Cc][Ee][Ss][Ss][_-]?[Tt][Oo][Kk][Ee][Nn]|[Rr][Ee][Ff][Rr][Ee][Ss][Hh][_-]?[Tt][Oo][Kk][Ee][Nn]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Rr][Ii][Vv][Aa][Tt][Ee][_-]?[Kk][Ee][Yy]|[Cc][Ll][Ii][Ee][Nn][Tt][_-]?[Ss][Ee][Cc][Rr][Ee][Tt]|[Bb][Ee][Aa][Rr][Ee][Rr] |[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Rr][Aa][Ww][_-]?[Pp][Rr][Oo][Mm][Pp][Tt]|[Rr][Aa][Ww][_-]?[Ll][Oo][Gg]|[Rr][Aa][Ww][_-]?[Pp][Aa][Yy][Ll][Oo][Aa][Dd]|[Aa][Rr][Tt][Ii][Ff][Aa][Cc][Tt][_-]?[Bb][Oo][Dd][Yy]|[Cc][Oo][Oo][Kk][Ii][Ee]|[Ss][Ee][Tt]-[Cc][Oo][Oo][Kk][Ii][Ee]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]:|-----[Bb][Ee][Gg][Ii][Nn])"
+      }
+    },
+    "safeIdentifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "not": {
+        "pattern": "([Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Aa][Cc][Cc][Ee][Ss][Ss][_-]?[Tt][Oo][Kk][Ee][Nn]|[Rr][Ee][Ff][Rr][Ee][Ss][Hh][_-]?[Tt][Oo][Kk][Ee][Nn]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Rr][Ii][Vv][Aa][Tt][Ee][_-]?[Kk][Ee][Yy]|[Cc][Ll][Ii][Ee][Nn][Tt][_-]?[Ss][Ee][Cc][Rr][Ee][Tt]|[Bb][Ee][Aa][Rr][Ee][Rr] |[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Rr][Aa][Ww][_-]?[Pp][Rr][Oo][Mm][Pp][Tt]|[Rr][Aa][Ww][_-]?[Ll][Oo][Gg]|[Rr][Aa][Ww][_-]?[Pp][Aa][Yy][Ll][Oo][Aa][Dd]|[Aa][Rr][Tt][Ii][Ff][Aa][Cc][Tt][_-]?[Bb][Oo][Dd][Yy]|[Cc][Oo][Oo][Kk][Ii][Ee]|[Ss][Ee][Tt]-[Cc][Oo][Oo][Kk][Ii][Ee]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]:|-----[Bb][Ee][Gg][Ii][Nn])"
+      }
+    },
+    "clientSafeText": {
+      "type": "string",
+      "maxLength": 4096,
+      "not": {
+        "pattern": "([Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Aa][Cc][Cc][Ee][Ss][Ss][_-]?[Tt][Oo][Kk][Ee][Nn]|[Rr][Ee][Ff][Rr][Ee][Ss][Hh][_-]?[Tt][Oo][Kk][Ee][Nn]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Rr][Ii][Vv][Aa][Tt][Ee][_-]?[Kk][Ee][Yy]|[Cc][Ll][Ii][Ee][Nn][Tt][_-]?[Ss][Ee][Cc][Rr][Ee][Tt]|[Bb][Ee][Aa][Rr][Ee][Rr] |[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Rr][Aa][Ww][_-]?[Pp][Rr][Oo][Mm][Pp][Tt]|[Rr][Aa][Ww][_-]?[Ll][Oo][Gg]|[Rr][Aa][Ww][_-]?[Pp][Aa][Yy][Ll][Oo][Aa][Dd]|[Aa][Rr][Tt][Ii][Ff][Aa][Cc][Tt][_-]?[Bb][Oo][Dd][Yy]|[Cc][Oo][Oo][Kk][Ii][Ee]|[Ss][Ee][Tt]-[Cc][Oo][Oo][Kk][Ii][Ee]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]:|-----[Bb][Ee][Gg][Ii][Nn])"
+      }
+    }
+  }
+}
