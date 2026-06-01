@@ -956,24 +956,43 @@
             "type": "object",
             "required": [
               "code",
-              "message",
-              "request_id",
-              "retryable"
+              "message_key",
+              "severity",
+              "retryable",
+              "support"
             ],
             "additionalProperties": false,
             "properties": {
               "code": {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "validation_failed",
+                  "conflict",
+                  "internal_error"
+                ]
               },
-              "message": {
-                "type": "string"
+              "message_key": {
+                "type": "string",
+                "pattern": "^errors\\.[a-z0-9_.]+$",
+                "description": "Stable resource key for client-side localized presentation. Backend control flow must not depend on locale-specific strings."
               },
-              "details": {
+              "severity": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "field_errors": {
                 "type": "array",
                 "items": {
                   "type": "object",
                   "required": [
-                    "code"
+                    "field",
+                    "code",
+                    "message_key"
                   ],
                   "additionalProperties": false,
                   "properties": {
@@ -981,23 +1000,33 @@
                       "type": "string"
                     },
                     "code": {
-                      "type": "string"
+                      "type": "string",
+                      "enum": [
+                        "required",
+                        "invalid"
+                      ]
                     },
-                    "message": {
-                      "type": "string"
-                    },
-                    "redacted": {
-                      "type": "boolean"
+                    "message_key": {
+                      "type": "string",
+                      "pattern": "^errors\\.field\\.[a-z0-9_.]+$"
                     }
                   }
                 },
-                "description": "Safe, allowlisted diagnostic details. Do not include request bodies, credentials, provider payloads, stack traces, or other private values."
+                "description": "Structured field-level error keys only. Do not include request bodies, credentials, provider payloads, raw prompts, stack traces, private logs, or localized copy."
               },
-              "request_id": {
-                "type": "string"
-              },
-              "retryable": {
-                "type": "boolean"
+              "support": {
+                "type": "object",
+                "required": [
+                  "redacted"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "redacted": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "description": "Debug-safe metadata only; opaque correlation ids may be added by gateway/proxy layers, but raw internals are never exposed."
               }
             }
           }

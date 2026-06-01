@@ -88,7 +88,51 @@ pub struct HealthResponse {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ErrorResponse {
-    pub error: String,
+    pub error: ErrorEnvelope,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ErrorEnvelope {
+    pub code: ErrorCode,
+    pub message_key: String,
+    pub severity: ErrorSeverity,
+    pub retryable: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub field_errors: Vec<FieldError>,
+    pub support: ErrorSupportMetadata,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCode {
+    ValidationFailed,
+    Conflict,
+    InternalError,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorSeverity {
+    Error,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct FieldError {
+    pub field: String,
+    pub code: FieldErrorCode,
+    pub message_key: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldErrorCode {
+    Required,
+    Invalid,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ErrorSupportMetadata {
+    pub redacted: bool,
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -292,7 +336,7 @@ async fn create_usage_event(
 ) -> Result<(StatusCode, Json<UsageAuditEventV1>), ApiError> {
     let ledger_entry = event
         .to_ledger_entry()
-        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        .map_err(|error| ApiError::invalid_payload(&error.to_string()))?;
 
     let mut store = state.store.lock().map_err(|_| ApiError::internal())?;
     if let Some(existing) = store
@@ -309,9 +353,7 @@ async fn create_usage_event(
                 rejected_event_id: event.id,
                 reason_code: UsageSecuritySignalCode::IdempotencyPayloadMismatch,
             });
-            return Err(ApiError::conflict(
-                "idempotency key reused with different usage payload".to_owned(),
-            ));
+            return Err(ApiError::conflict());
         }
         return Ok((StatusCode::ACCEPTED, Json(existing)));
     }
@@ -401,7 +443,7 @@ async fn create_run_timeline_event(
 ) -> Result<(StatusCode, Json<RunTimelineEventV1>), ApiError> {
     event
         .validate_for_ingestion()
-        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        .map_err(|error| ApiError::invalid_payload(&error.to_string()))?;
 
     state
         .store
@@ -425,7 +467,7 @@ async fn create_operations_audit_event(
 ) -> Result<(StatusCode, Json<OperationsAuditEventV1>), ApiError> {
     event
         .validate_for_ingestion()
-        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        .map_err(|error| ApiError::invalid_payload(&error.to_string()))?;
 
     state
         .store
@@ -449,7 +491,7 @@ async fn create_operations_health_event(
 ) -> Result<(StatusCode, Json<OperationsHealthEventV1>), ApiError> {
     event
         .validate_for_ingestion()
-        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        .map_err(|error| ApiError::invalid_payload(&error.to_string()))?;
 
     state
         .store
@@ -463,7 +505,7 @@ async fn create_operations_health_event(
 
 fn require_non_empty(field: &'static str, value: &str) -> Result<(), ApiError> {
     if value.trim().is_empty() {
-        return Err(ApiError::bad_request(format!("{field} is required")));
+        return Err(ApiError::required_field(field));
     }
 
     Ok(())
@@ -471,9 +513,10 @@ fn require_non_empty(field: &'static str, value: &str) -> Result<(), ApiError> {
 
 fn require_schema_version(expected: &'static str, actual: &str) -> Result<(), ApiError> {
     if actual != expected {
-        return Err(ApiError::bad_request(format!(
-            "schema_version must be {expected}"
-        )));
+        return Err(ApiError::invalid_field(
+            "schema_version",
+            &format!("expected {expected}, received {actual}"),
+        ));
     }
 
     Ok(())
@@ -482,41 +525,82 @@ fn require_schema_version(expected: &'static str, actual: &str) -> Result<(), Ap
 #[derive(Debug)]
 pub struct ApiError {
     status: StatusCode,
-    message: String,
+    body: ErrorEnvelope,
 }
 
 impl ApiError {
-    fn bad_request(message: String) -> Self {
+    fn required_field(field: &'static str) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
-            message,
+            body: ErrorEnvelope {
+                code: ErrorCode::ValidationFailed,
+                message_key: "errors.validation_failed".to_owned(),
+                severity: ErrorSeverity::Error,
+                retryable: false,
+                field_errors: vec![FieldError {
+                    field: field.to_owned(),
+                    code: FieldErrorCode::Required,
+                    message_key: "errors.field.required".to_owned(),
+                }],
+                support: ErrorSupportMetadata { redacted: true },
+            },
         }
     }
 
-    fn conflict(message: String) -> Self {
+    fn invalid_field(field: &'static str, _safe_reason: &str) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            body: ErrorEnvelope {
+                code: ErrorCode::ValidationFailed,
+                message_key: "errors.validation_failed".to_owned(),
+                severity: ErrorSeverity::Error,
+                retryable: false,
+                field_errors: vec![FieldError {
+                    field: field.to_owned(),
+                    code: FieldErrorCode::Invalid,
+                    message_key: "errors.field.invalid".to_owned(),
+                }],
+                support: ErrorSupportMetadata { redacted: true },
+            },
+        }
+    }
+
+    fn invalid_payload(_safe_reason: &str) -> Self {
+        Self::invalid_field("body", "invalid payload")
+    }
+
+    fn conflict() -> Self {
         Self {
             status: StatusCode::CONFLICT,
-            message,
+            body: ErrorEnvelope {
+                code: ErrorCode::Conflict,
+                message_key: "errors.conflict".to_owned(),
+                severity: ErrorSeverity::Error,
+                retryable: false,
+                field_errors: Vec::new(),
+                support: ErrorSupportMetadata { redacted: true },
+            },
         }
     }
 
     fn internal() -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: "internal error".to_owned(),
+            body: ErrorEnvelope {
+                code: ErrorCode::InternalError,
+                message_key: "errors.internal".to_owned(),
+                severity: ErrorSeverity::Error,
+                retryable: true,
+                field_errors: Vec::new(),
+                support: ErrorSupportMetadata { redacted: true },
+            },
         }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (
-            self.status,
-            Json(ErrorResponse {
-                error: self.message,
-            }),
-        )
-            .into_response()
+        (self.status, Json(ErrorResponse { error: self.body })).into_response()
     }
 }
 
@@ -545,7 +629,13 @@ impl IntoResponse for ApiError {
         CreateIssueRequest,
         CreateRegistryEntryRequest,
         CreateWorkingGroupRequest,
+        ErrorCode,
+        ErrorEnvelope,
+        ErrorSeverity,
         ErrorResponse,
+        ErrorSupportMetadata,
+        FieldError,
+        FieldErrorCode,
         HealthResponse,
         Issue,
         HealthAvailability,
@@ -730,6 +820,107 @@ mod tests {
             document["components"]["schemas"]["RunTimelineEventV1"]["properties"]["stage"]
                 .is_object()
         );
+        let error = &document["components"]["schemas"]["ErrorEnvelope"];
+        assert!(error["properties"]["code"].is_object());
+        assert!(error["properties"]["message_key"].is_object());
+        assert!(error["properties"]["field_errors"].is_object());
+        assert!(error["properties"]["support"].is_object());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn validation_errors_return_stable_localization_contract()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/working-groups")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "slug": "   ",
+                            "name": "Platform"
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(envelope["error"]["code"], "validation_failed");
+        assert_eq!(envelope["error"]["message_key"], "errors.validation_failed");
+        assert_eq!(envelope["error"]["severity"], "error");
+        assert_eq!(envelope["error"]["retryable"], false);
+        assert_eq!(envelope["error"]["field_errors"][0]["field"], "slug");
+        assert_eq!(envelope["error"]["field_errors"][0]["code"], "required");
+        assert_eq!(
+            envelope["error"]["field_errors"][0]["message_key"],
+            "errors.field.required"
+        );
+        assert_eq!(envelope["error"]["support"]["redacted"], true);
+        assert!(envelope["error"].get("message").is_none());
+        assert!(
+            envelope["error"]["field_errors"][0]
+                .get("message")
+                .is_none()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ingestion_errors_redact_sensitive_payload_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/operations/audit/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "id": "evt_12345678901234567890123456",
+                            "type": "operations.audit.recorded",
+                            "envelope": {
+                                "version": "0.1.0",
+                                "occurred_at": "2026-06-01T00:00:00Z",
+                                "working_group_id": "wg_12345678901234567890123456",
+                                "tenant_id": "tenant_12345678901234567890123456",
+                                "correlation_id": "corr_12345678901234567890123456",
+                                "request_id": "req_12345678901234567890123456",
+                                "source": "control_plane",
+                                "actor": { "type": "agent", "id": "agent_12345678901234567890123456" },
+                                "resource": { "type": "provider", "id": "secret_token_value" },
+                                "redaction": "internal_reference_only"
+                            },
+                            "action": "credential_access",
+                            "outcome": "failed",
+                            "evidence": {
+                                "evidence_id": "evidence_12345678901234567890123456",
+                                "policy_decision_id": "poldec_12345678901234567890123456",
+                                "secret_ref": "secret_12345678901234567890123456"
+                            }
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        let serialized = serde_json::to_string(&envelope)?;
+
+        assert_eq!(envelope["error"]["code"], "validation_failed");
+        assert_eq!(envelope["error"]["field_errors"][0]["field"], "body");
+        assert_eq!(envelope["error"]["field_errors"][0]["code"], "invalid");
+        assert_eq!(envelope["error"]["support"]["redacted"], true);
+        assert!(!serialized.contains("secret_token_value"));
+        assert!(!serialized.contains("credential_access"));
+        assert!(!serialized.contains("poldec_12345678901234567890123456"));
         Ok(())
     }
 
