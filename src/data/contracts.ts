@@ -69,6 +69,58 @@ export interface RunStep {
   severity: Severity;
 }
 
+export type ReviewSignalState =
+  | "ready"
+  | "loading"
+  | "empty"
+  | "error"
+  | "missing"
+  | "high_risk";
+
+export type ReviewDecisionKind =
+  | "approve"
+  | "request_changes"
+  | "done"
+  | "rework";
+
+export interface ReviewControlSignal {
+  id: string;
+  label: string;
+  detail: string;
+  state: ReviewSignalState;
+}
+
+export interface ReviewControlPlanStep {
+  id: string;
+  title: string;
+  detail: string;
+  status: "ready" | "needs_attention" | "blocked";
+}
+
+export interface ReviewControlEvidence {
+  id: string;
+  label: string;
+  detail: string;
+  state: ReviewSignalState;
+}
+
+export interface ReviewControlData {
+  request: {
+    key: string;
+    title: string;
+    source: string;
+    summary: string;
+  };
+  riskTier: "low" | "medium" | "high";
+  autonomyLevel: string;
+  planSteps: ReviewControlPlanStep[];
+  evidence: ReviewControlEvidence[];
+  signals: ReviewControlSignal[];
+  reviewChecklist: string[];
+  rollbackGuidance: string;
+  auditEvents: string[];
+}
+
 export interface SetupStep {
   id: string;
   title: string;
@@ -278,6 +330,7 @@ export interface ConsoleData {
   selectedIssue: IssueDetail;
   runSteps: RunStep[];
   setupSteps: SetupStep[];
+  reviewControl: ReviewControlData;
   demoReviewControlSeed?: DemoReviewControlSeed;
 }
 

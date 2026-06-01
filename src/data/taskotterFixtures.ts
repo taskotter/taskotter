@@ -205,5 +205,110 @@ export const taskotterConsoleFixture: ConsoleData = {
         "Runner setup waits for contract and gateway compatibility fixtures.",
     },
   ],
+  reviewControl: {
+    request: {
+      key: "BOG-575",
+      title: "Review control prototype frontend flow",
+      source: "Multica issue request",
+      summary:
+        "Prototype the Request, Plan, Review Packet, Done, and Rework decision flow inside the existing MVP app shell.",
+    },
+    riskTier: "high",
+    autonomyLevel: "Human approval required before done or rework",
+    planSteps: [
+      {
+        id: "request",
+        title: "Inspect request",
+        detail:
+          "Confirm source issue, acceptance criteria, parent context, and non-goals before approving agent work.",
+        status: "ready",
+      },
+      {
+        id: "plan",
+        title: "Approve plan",
+        detail:
+          "Plan is narrow because final Domain/API contracts are still in progress.",
+        status: "needs_attention",
+      },
+      {
+        id: "import",
+        title: "Import result",
+        detail:
+          "Evidence import is fixture-backed until generated review packet APIs land.",
+        status: "blocked",
+      },
+    ],
+    evidence: [
+      {
+        id: "changed-files",
+        label: "Changed files",
+        detail: "App shell, view-model fixtures, i18n resources, and UI smoke.",
+        state: "ready",
+      },
+      {
+        id: "visual",
+        label: "Visual verification",
+        detail: "Screenshot path is captured by the Playwright smoke test.",
+        state: "loading",
+      },
+      {
+        id: "api-contract",
+        label: "Domain/API contract",
+        detail: "BOG-571 has no final implementation evidence yet.",
+        state: "missing",
+      },
+      {
+        id: "raw-logs",
+        label: "Private/raw logs",
+        detail: "No raw logs are imported into the review packet.",
+        state: "empty",
+      },
+      {
+        id: "redacted-placeholders",
+        label: "Redacted placeholders",
+        detail:
+          "[REDACTED] placeholders stand in for any token, credential, or private log content.",
+        state: "ready",
+      },
+    ],
+    signals: [
+      {
+        id: "risk",
+        label: "High risk",
+        detail:
+          "Human review is required because plan approval and done/rework decisions change work state.",
+        state: "high_risk",
+      },
+      {
+        id: "contract",
+        label: "Contract pending",
+        detail:
+          "Generated client fields are not final; this surface uses adapter-local fixture data.",
+        state: "error",
+      },
+      {
+        id: "evidence",
+        label: "Missing evidence",
+        detail:
+          "Backend packet generation is represented as a missing-evidence state.",
+        state: "missing",
+      },
+    ],
+    reviewChecklist: [
+      "Acceptance criteria are visible before the final decision.",
+      "Imported evidence is summarized without private logs or secrets.",
+      "Redacted placeholders are shown instead of secret-shaped values.",
+      "Risk and missing-evidence states remain visible in compact layouts.",
+      "Reviewer can choose done or send the item back for rework.",
+    ],
+    rollbackGuidance:
+      "If evidence is incomplete or risk remains unresolved, choose rework and keep the issue out of done.",
+    auditEvents: [
+      "Request opened from BOG-575",
+      "Plan awaits human approval",
+      "Review packet import is fixture-backed",
+      "Done/rework decision is pending",
+    ],
+  },
   demoReviewControlSeed,
 };
