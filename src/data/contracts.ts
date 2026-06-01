@@ -104,6 +104,22 @@ export interface DemoAcceptanceCriterion {
   satisfied: boolean;
 }
 
+export type DemoReviewPacketSeverity = "info" | "warning" | "danger";
+
+export type DemoVerificationStatus =
+  | "passed"
+  | "failed"
+  | "not_run"
+  | "blocked";
+
+export type DemoReviewPacketEvidenceKind =
+  | "test"
+  | "lint"
+  | "typecheck"
+  | "build"
+  | "review"
+  | "runtime";
+
 export interface DemoPlanApproval {
   state: PlanApprovalState;
   requiredBefore: "agent_start" | "protected_side_effect" | "not_required";
@@ -130,33 +146,87 @@ export interface DemoImportedEvidenceSummary {
   missingEvidence?: string[];
 }
 
-export interface DemoReviewPacket {
-  packetId: string;
-  generatedAt: string;
-  summary: string;
-  changedFiles: string[];
-  artifacts: string[];
-  acceptanceChecklist: DemoAcceptanceCriterion[];
-  riskSignals: string[];
-  uncertainty: string[];
-  rollbackGuidance: string;
-  reworkGuidance: string;
-  decisionRecommendation: "approve_done" | "request_rework" | "manual_approval";
+export interface DemoReviewPacketArtifact {
+  path: string;
+  kind: "source" | "test" | "fixture" | "contract" | "doc" | "config";
+  summary?: string;
+  riskTags?: readonly string[];
 }
 
-export interface DemoAuditCorrelation {
+export interface DemoReviewPacketChecklistItem {
+  id: string;
+  text: string;
+  status: "covered" | "missing";
+  evidenceRefs: readonly string[];
+}
+
+export interface DemoReviewPacketSignal {
+  code:
+    | "missing_acceptance_evidence"
+    | "missing_tests"
+    | "verification_failed"
+    | "verification_blocked"
+    | "high_risk_change"
+    | "rework_requested"
+    | "approval_required";
+  severity: DemoReviewPacketSeverity;
+  message: string;
+  evidenceRefs: readonly string[];
+}
+
+export interface DemoReviewPacketVerificationEvidence {
+  id: string;
+  kind: DemoReviewPacketEvidenceKind;
+  status: DemoVerificationStatus;
+  summary: string;
+  command?: string;
+  artifactRefs: readonly string[];
+  correlationId?: string;
+}
+
+export interface DemoCanonicalReviewPacket {
+  schemaVersion: "review_packet.v0";
+  issueKey: string;
+  summary: string;
+  changedArtifacts: readonly DemoReviewPacketArtifact[];
+  acceptanceChecklist: readonly DemoReviewPacketChecklistItem[];
+  riskSignals: readonly DemoReviewPacketSignal[];
+  uncertainty: string[];
+  rollbackOrReworkGuidance: string;
+  verificationEvidence: readonly DemoReviewPacketVerificationEvidence[];
+  missingEvidenceWarnings: readonly string[];
+  audit: {
+    correlationIds: readonly string[];
+    redactions: readonly string[];
+  };
+}
+
+export interface DemoAuditChainSummary {
   correlationId: string;
   requestId: string;
   policyDecisionId?: string;
-  auditEventIds: string[];
-  runTimelineEventIds: string[];
+  approvalId?: string;
+  evidenceImportId: string;
+  reviewPacketId: string;
+  doneDecisionId?: string;
+  reworkDecisionId?: string;
+  workflowPath:
+    | "done_approved"
+    | "missing_evidence"
+    | "rework_requested"
+    | "denied";
+  eventIds: string[];
 }
 
-export interface DemoReviewTimeMetric {
-  baselineSeconds: number;
-  observedSeconds: number;
-  startedAt: string;
-  completedAt?: string;
+export interface DemoReviewTimeSummaryMetric {
+  source: "demo_summary_metric_not_event_telemetry";
+  derivedFromEventTelemetry: false;
+  baselineHumanReviewMinutes: number;
+  humanReviewMinutes: number;
+  humanMinutesPerCompletedAgentTask?: number;
+  completedAgentTasks: number;
+  reworkLoops: number;
+  missingStopEvents: number;
   reviewerRole: "human_reviewer" | "qa_agent" | "delivery_lead";
 }
 
@@ -183,9 +253,9 @@ export interface DemoReviewWorkItem {
   acceptanceCriteria: DemoAcceptanceCriterion[];
   planApproval: DemoPlanApproval;
   importedEvidenceSummary: DemoImportedEvidenceSummary;
-  reviewPacket: DemoReviewPacket;
-  auditCorrelation: DemoAuditCorrelation;
-  reviewTimeMetric: DemoReviewTimeMetric;
+  reviewPacket: DemoCanonicalReviewPacket;
+  demoAuditChainSummary: DemoAuditChainSummary;
+  demoReviewTimeSummaryMetric: DemoReviewTimeSummaryMetric;
   redactionSafety: DemoRedactionSafety;
 }
 

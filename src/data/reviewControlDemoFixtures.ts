@@ -1,6 +1,73 @@
-import type { DemoReviewControlSeed, DemoReviewWorkItem } from "./contracts";
+import type {
+  DemoAcceptanceCriterion,
+  DemoCanonicalReviewPacket,
+  DemoReviewControlSeed,
+  DemoReviewPacketSignal,
+  DemoReviewWorkItem,
+} from "./contracts";
 
 const generatedAt = "2026-06-01T18:00:00.000Z";
+
+function criteria(
+  values: readonly [id: string, text: string, satisfied: boolean][],
+): DemoAcceptanceCriterion[] {
+  return values.map(([id, text, satisfied]) => ({
+    id,
+    text,
+    required: true,
+    satisfied,
+  }));
+}
+
+function packet({
+  issueKey,
+  summary,
+  changedArtifacts,
+  acceptanceCriteria,
+  verificationEvidence,
+  riskSignals = [],
+  uncertainty = [],
+  rollbackOrReworkGuidance,
+  missingEvidenceWarnings = [],
+  redactions = [],
+}: {
+  issueKey: string;
+  summary: string;
+  changedArtifacts: DemoCanonicalReviewPacket["changedArtifacts"];
+  acceptanceCriteria: DemoAcceptanceCriterion[];
+  verificationEvidence: DemoCanonicalReviewPacket["verificationEvidence"];
+  riskSignals?: readonly DemoReviewPacketSignal[];
+  uncertainty?: string[];
+  rollbackOrReworkGuidance: string;
+  missingEvidenceWarnings?: readonly string[];
+  redactions?: readonly string[];
+}): DemoCanonicalReviewPacket {
+  return {
+    schemaVersion: "review_packet.v0",
+    issueKey,
+    summary,
+    changedArtifacts,
+    acceptanceChecklist: acceptanceCriteria.map((criterion) => ({
+      id: criterion.id,
+      text: criterion.text,
+      status: criterion.satisfied ? "covered" : "missing",
+      evidenceRefs: criterion.satisfied
+        ? verificationEvidence.map((evidence) => evidence.id)
+        : [],
+    })),
+    riskSignals,
+    uncertainty,
+    rollbackOrReworkGuidance,
+    verificationEvidence,
+    missingEvidenceWarnings,
+    audit: {
+      correlationIds: verificationEvidence
+        .map((evidence) => evidence.correlationId)
+        .filter((value): value is string => value !== undefined),
+      redactions,
+    },
+  };
+}
 
 function workItem(
   item: Omit<DemoReviewWorkItem, "redactionSafety"> & {
@@ -15,6 +82,48 @@ function workItem(
     },
   };
 }
+
+const happyPathCriteria = criteria([
+  [
+    "ac_demo_101_1",
+    "Issue summary renders status, assignee, and acceptance checklist.",
+    true,
+  ],
+  [
+    "ac_demo_101_2",
+    "Reviewer can mark the packet done without live integrations.",
+    true,
+  ],
+]);
+
+const missingEvidenceCriteria = criteria([
+  ["ac_demo_102_1", "Review packet lists the missing visual proof.", false],
+]);
+
+const failedTestCriteria = criteria([
+  [
+    "ac_demo_103_1",
+    "Fixture validation passes before review can approve done.",
+    false,
+  ],
+]);
+
+const reworkCriteria = criteria([
+  [
+    "ac_demo_104_1",
+    "Review packet explains concrete rework before done.",
+    false,
+  ],
+]);
+
+const highRiskCriteria = criteria([
+  ["ac_demo_105_1", "Protected side effect waits for manual approval.", true],
+  [
+    "ac_demo_105_2",
+    "Secret-shaped evidence is redacted and marked generated fake.",
+    true,
+  ],
+]);
 
 export const demoReviewControlSeed: DemoReviewControlSeed = {
   fixtureId: "fixture_review_control_demo_seed_v1",
@@ -31,20 +140,7 @@ export const demoReviewControlSeed: DemoReviewControlSeed = {
       riskTier: "low",
       assignee: "Frontend Implementation Engineer",
       requestSource: "github_issue",
-      acceptanceCriteria: [
-        {
-          id: "ac_demo_101_1",
-          text: "Issue summary renders status, assignee, and acceptance checklist.",
-          required: true,
-          satisfied: true,
-        },
-        {
-          id: "ac_demo_101_2",
-          text: "Reviewer can mark the packet done without live integrations.",
-          required: true,
-          satisfied: true,
-        },
-      ],
+      acceptanceCriteria: happyPathCriteria,
       planApproval: {
         state: "approved",
         requiredBefore: "agent_start",
@@ -74,58 +170,62 @@ export const demoReviewControlSeed: DemoReviewControlSeed = {
           },
         ],
       },
-      reviewPacket: {
-        packetId: "packet_demo_101",
-        generatedAt: "2026-06-01T17:45:00.000Z",
-        summary: "Small UI fixture update is ready for done approval.",
-        changedFiles: [
-          "src/data/reviewControlDemoFixtures.ts",
-          "src/data/contracts.ts",
-          "src/data/reviewControlDemoFixtures.test.ts",
-        ],
-        artifacts: [
-          "artifact_demo_101_unit_log",
-          "artifact_demo_101_screenshot",
-        ],
-        acceptanceChecklist: [
+      reviewPacket: packet({
+        issueKey: "DEMO-101",
+        summary: "DEMO-101: Review generated issue summary panel",
+        changedArtifacts: [
           {
-            id: "ac_demo_101_1",
-            text: "Issue summary renders status, assignee, and acceptance checklist.",
-            required: true,
-            satisfied: true,
+            path: "src/data/reviewControlDemoFixtures.ts",
+            kind: "fixture",
+            summary: "Generated fake review control seed fixture.",
           },
           {
-            id: "ac_demo_101_2",
-            text: "Reviewer can mark the packet done without live integrations.",
-            required: true,
-            satisfied: true,
+            path: "src/data/contracts.ts",
+            kind: "source",
+            summary: "Typed demo fixture surface.",
           },
         ],
-        riskSignals: ["fixture_only", "no_live_provider_call"],
+        acceptanceCriteria: happyPathCriteria,
+        verificationEvidence: [
+          {
+            id: "ev_demo_101_unit",
+            kind: "test",
+            status: "passed",
+            summary: "Fixture-backed review panel rendered expected sections.",
+            command: "npm run test:unit",
+            artifactRefs: ["src/data/reviewControlDemoFixtures.test.ts"],
+            correlationId: "corr_demo_101_review",
+          },
+        ],
         uncertainty: ["Design polish pending UX review"],
-        rollbackGuidance: "Remove the demo seed export and adapter property.",
-        reworkGuidance:
-          "Adjust copy or fixture fields only; no API migration is required.",
-        decisionRecommendation: "approve_done",
-      },
-      auditCorrelation: {
+        rollbackOrReworkGuidance:
+          "Remove the demo seed export and adapter property.",
+      }),
+      demoAuditChainSummary: {
         correlationId: "corr_demo_101_review",
         requestId: "req_demo_101_plan",
         policyDecisionId: "poldec_demo_101_allow",
-        auditEventIds: [
-          "audit_demo_101_plan_approved",
-          "audit_demo_101_packet_generated",
-        ],
-        runTimelineEventIds: [
-          "timeline_demo_101_imported",
-          "timeline_demo_101_reviewed",
+        approvalId: "appr_demo_101_plan",
+        evidenceImportId: "evimp_demo_101",
+        reviewPacketId: "rvpkt_demo_101",
+        doneDecisionId: "rvdec_demo_101_done",
+        workflowPath: "done_approved",
+        eventIds: [
+          "evt_demo_101_plan_approved",
+          "evt_demo_101_evidence_imported",
+          "evt_demo_101_packet_generated",
+          "evt_demo_101_human_decision_done",
         ],
       },
-      reviewTimeMetric: {
-        baselineSeconds: 600,
-        observedSeconds: 210,
-        startedAt: "2026-06-01T17:45:00.000Z",
-        completedAt: "2026-06-01T17:48:30.000Z",
+      demoReviewTimeSummaryMetric: {
+        source: "demo_summary_metric_not_event_telemetry",
+        derivedFromEventTelemetry: false,
+        baselineHumanReviewMinutes: 10,
+        humanReviewMinutes: 4,
+        humanMinutesPerCompletedAgentTask: 4,
+        completedAgentTasks: 1,
+        reworkLoops: 0,
+        missingStopEvents: 0,
         reviewerRole: "human_reviewer",
       },
     }),
@@ -138,14 +238,7 @@ export const demoReviewControlSeed: DemoReviewControlSeed = {
       riskTier: "medium",
       assignee: "QA Test Engineer",
       requestSource: "multica_issue",
-      acceptanceCriteria: [
-        {
-          id: "ac_demo_102_1",
-          text: "Review packet lists the missing visual proof.",
-          required: true,
-          satisfied: false,
-        },
-      ],
+      acceptanceCriteria: missingEvidenceCriteria,
       planApproval: {
         state: "approved",
         requiredBefore: "agent_start",
@@ -179,40 +272,64 @@ export const demoReviewControlSeed: DemoReviewControlSeed = {
           "browser.screenshot.mobile",
         ],
       },
-      reviewPacket: {
-        packetId: "packet_demo_102",
-        generatedAt: "2026-06-01T17:37:00.000Z",
-        summary: "Review is blocked by missing screenshot evidence.",
-        changedFiles: ["src/App.tsx", "src/styles.css"],
-        artifacts: ["artifact_demo_102_unit_log"],
-        acceptanceChecklist: [
+      reviewPacket: packet({
+        issueKey: "DEMO-102",
+        summary: "DEMO-102: Review run without screenshot evidence",
+        changedArtifacts: [
+          { path: "src/App.tsx", kind: "source" },
+          { path: "src/styles.css", kind: "source" },
+        ],
+        acceptanceCriteria: missingEvidenceCriteria,
+        verificationEvidence: [
           {
-            id: "ac_demo_102_1",
-            text: "Review packet lists the missing visual proof.",
-            required: true,
-            satisfied: false,
+            id: "ev_demo_102_unit",
+            kind: "test",
+            status: "passed",
+            summary: "Packet generated from available fake evidence.",
+            artifactRefs: ["artifact_demo_102_unit_log"],
+            correlationId: "corr_demo_102_review",
           },
         ],
-        riskSignals: ["missing_visual_evidence"],
+        riskSignals: [
+          {
+            code: "missing_acceptance_evidence",
+            severity: "warning",
+            message:
+              "Acceptance criteria are missing linked verification evidence.",
+            evidenceRefs: ["ac_demo_102_1"],
+          },
+        ],
         uncertainty: ["Responsive layout has not been visually verified."],
-        rollbackGuidance:
-          "Keep current branch unmerged until evidence is re-imported.",
-        reworkGuidance:
+        rollbackOrReworkGuidance:
           "Run the browser smoke flow and attach desktop and mobile screenshots.",
-        decisionRecommendation: "request_rework",
-      },
-      auditCorrelation: {
+        missingEvidenceWarnings: [
+          "Missing evidence for ac_demo_102_1",
+          "Missing browser.screenshot.desktop",
+          "Missing browser.screenshot.mobile",
+        ],
+      }),
+      demoAuditChainSummary: {
         correlationId: "corr_demo_102_review",
         requestId: "req_demo_102_packet",
         policyDecisionId: "poldec_demo_102_allow",
-        auditEventIds: ["audit_demo_102_packet_generated"],
-        runTimelineEventIds: ["timeline_demo_102_imported_partial"],
+        approvalId: "appr_demo_102_plan",
+        evidenceImportId: "evimp_demo_102",
+        reviewPacketId: "rvpkt_demo_102",
+        reworkDecisionId: "rvdec_demo_102_rework",
+        workflowPath: "missing_evidence",
+        eventIds: [
+          "evt_demo_102_evidence_missing",
+          "evt_demo_102_packet_generated",
+        ],
       },
-      reviewTimeMetric: {
-        baselineSeconds: 720,
-        observedSeconds: 480,
-        startedAt: "2026-06-01T17:37:00.000Z",
-        completedAt: "2026-06-01T17:45:00.000Z",
+      demoReviewTimeSummaryMetric: {
+        source: "demo_summary_metric_not_event_telemetry",
+        derivedFromEventTelemetry: false,
+        baselineHumanReviewMinutes: 12,
+        humanReviewMinutes: 8,
+        completedAgentTasks: 0,
+        reworkLoops: 1,
+        missingStopEvents: 0,
         reviewerRole: "qa_agent",
       },
     }),
@@ -225,14 +342,7 @@ export const demoReviewControlSeed: DemoReviewControlSeed = {
       riskTier: "medium",
       assignee: "Frontend Implementation Engineer",
       requestSource: "github_issue",
-      acceptanceCriteria: [
-        {
-          id: "ac_demo_103_1",
-          text: "Fixture validation passes before review can approve done.",
-          required: true,
-          satisfied: false,
-        },
-      ],
+      acceptanceCriteria: failedTestCriteria,
       planApproval: {
         state: "approved",
         requiredBefore: "agent_start",
@@ -263,49 +373,59 @@ export const demoReviewControlSeed: DemoReviewControlSeed = {
           },
         ],
       },
-      reviewPacket: {
-        packetId: "packet_demo_103",
-        generatedAt: "2026-06-01T17:19:00.000Z",
-        summary:
-          "Review should request rework because fixture validation failed.",
-        changedFiles: [
-          "src/data/taskotterAdapter.ts",
-          "src/data/contracts.ts",
-          "tests/contracts/fixtures.test.mjs",
+      reviewPacket: packet({
+        issueKey: "DEMO-103",
+        summary: "DEMO-103: Review adapter change with failing fixture test",
+        changedArtifacts: [
+          { path: "src/data/taskotterAdapter.ts", kind: "source" },
+          { path: "tests/contracts/fixtures.test.mjs", kind: "test" },
         ],
-        artifacts: [
-          "artifact_demo_103_fixture_log",
-          "artifact_demo_103_typecheck_log",
-        ],
-        acceptanceChecklist: [
+        acceptanceCriteria: failedTestCriteria,
+        verificationEvidence: [
           {
-            id: "ac_demo_103_1",
-            text: "Fixture validation passes before review can approve done.",
-            required: true,
-            satisfied: false,
+            id: "ev_demo_103_fixture",
+            kind: "test",
+            status: "failed",
+            summary: "Fixture validation rejected an incomplete review packet.",
+            command: "npm run test:fixtures",
+            artifactRefs: ["artifact_demo_103_fixture_log"],
+            correlationId: "corr_demo_103_review",
           },
         ],
-        riskSignals: ["failed_required_check"],
+        riskSignals: [
+          {
+            code: "verification_failed",
+            severity: "danger",
+            message: "test evidence failed.",
+            evidenceRefs: ["ev_demo_103_fixture"],
+          },
+        ],
         uncertainty: [
           "Review packet completeness cannot be trusted until fixed.",
         ],
-        rollbackGuidance: "Revert the adapter fixture mapping from the branch.",
-        reworkGuidance:
+        rollbackOrReworkGuidance:
           "Add the missing review packet fields and rerun fixture validation.",
-        decisionRecommendation: "request_rework",
-      },
-      auditCorrelation: {
+        missingEvidenceWarnings: ["Missing evidence for ac_demo_103_1"],
+      }),
+      demoAuditChainSummary: {
         correlationId: "corr_demo_103_review",
         requestId: "req_demo_103_packet",
         policyDecisionId: "poldec_demo_103_allow",
-        auditEventIds: ["audit_demo_103_check_failed"],
-        runTimelineEventIds: ["timeline_demo_103_fixture_failed"],
+        approvalId: "appr_demo_103_plan",
+        evidenceImportId: "evimp_demo_103",
+        reviewPacketId: "rvpkt_demo_103",
+        reworkDecisionId: "rvdec_demo_103_rework",
+        workflowPath: "rework_requested",
+        eventIds: ["evt_demo_103_check_failed", "evt_demo_103_rework"],
       },
-      reviewTimeMetric: {
-        baselineSeconds: 900,
-        observedSeconds: 300,
-        startedAt: "2026-06-01T17:19:00.000Z",
-        completedAt: "2026-06-01T17:24:00.000Z",
+      demoReviewTimeSummaryMetric: {
+        source: "demo_summary_metric_not_event_telemetry",
+        derivedFromEventTelemetry: false,
+        baselineHumanReviewMinutes: 15,
+        humanReviewMinutes: 5,
+        completedAgentTasks: 0,
+        reworkLoops: 1,
+        missingStopEvents: 0,
         reviewerRole: "qa_agent",
       },
     }),
@@ -318,14 +438,7 @@ export const demoReviewControlSeed: DemoReviewControlSeed = {
       riskTier: "low",
       assignee: "Frontend Delivery Lead",
       requestSource: "manual_request",
-      acceptanceCriteria: [
-        {
-          id: "ac_demo_104_1",
-          text: "Review packet explains concrete rework before done.",
-          required: true,
-          satisfied: false,
-        },
-      ],
+      acceptanceCriteria: reworkCriteria,
       planApproval: {
         state: "not_required",
         requiredBefore: "not_required",
@@ -347,41 +460,56 @@ export const demoReviewControlSeed: DemoReviewControlSeed = {
           },
         ],
       },
-      reviewPacket: {
-        packetId: "packet_demo_104",
-        generatedAt: "2026-06-01T17:06:00.000Z",
-        summary: "Reviewer requested clearer rollback guidance before done.",
-        changedFiles: ["src/i18n/resources/en/issues.ts"],
-        artifacts: ["artifact_demo_104_copy_scan"],
-        acceptanceChecklist: [
+      reviewPacket: packet({
+        issueKey: "DEMO-104",
+        summary: "DEMO-104: Review copy update needing rework guidance",
+        changedArtifacts: [
+          { path: "src/i18n/resources/en/issues.ts", kind: "source" },
+        ],
+        acceptanceCriteria: reworkCriteria,
+        verificationEvidence: [
           {
-            id: "ac_demo_104_1",
-            text: "Review packet explains concrete rework before done.",
-            required: true,
-            satisfied: false,
+            id: "ev_demo_104_copy",
+            kind: "review",
+            status: "passed",
+            summary: "No private roadmap text or client records found.",
+            artifactRefs: ["artifact_demo_104_copy_scan"],
+            correlationId: "corr_demo_104_review",
           },
         ],
-        riskSignals: ["reviewer_requested_rework"],
+        riskSignals: [
+          {
+            code: "rework_requested",
+            severity: "danger",
+            message:
+              "Current evidence indicates rework is needed before approval.",
+            evidenceRefs: ["ac_demo_104_1"],
+          },
+        ],
         uncertainty: [
           "Rollback instruction is too broad for a future reviewer.",
         ],
-        rollbackGuidance:
-          "Replace the fixture text with the previous generated fake string.",
-        reworkGuidance:
+        rollbackOrReworkGuidance:
           "Add a one-step rollback instruction and rerun copy scan.",
-        decisionRecommendation: "request_rework",
-      },
-      auditCorrelation: {
+        missingEvidenceWarnings: ["Missing evidence for ac_demo_104_1"],
+      }),
+      demoAuditChainSummary: {
         correlationId: "corr_demo_104_review",
         requestId: "req_demo_104_rework",
-        auditEventIds: ["audit_demo_104_rework_requested"],
-        runTimelineEventIds: ["timeline_demo_104_reviewed"],
+        evidenceImportId: "evimp_demo_104",
+        reviewPacketId: "rvpkt_demo_104",
+        reworkDecisionId: "rvdec_demo_104_rework",
+        workflowPath: "rework_requested",
+        eventIds: ["evt_demo_104_packet_generated", "evt_demo_104_rework"],
       },
-      reviewTimeMetric: {
-        baselineSeconds: 420,
-        observedSeconds: 240,
-        startedAt: "2026-06-01T17:06:00.000Z",
-        completedAt: "2026-06-01T17:10:00.000Z",
+      demoReviewTimeSummaryMetric: {
+        source: "demo_summary_metric_not_event_telemetry",
+        derivedFromEventTelemetry: false,
+        baselineHumanReviewMinutes: 7,
+        humanReviewMinutes: 4,
+        completedAgentTasks: 0,
+        reworkLoops: 1,
+        missingStopEvents: 0,
         reviewerRole: "delivery_lead",
       },
     }),
@@ -394,20 +522,7 @@ export const demoReviewControlSeed: DemoReviewControlSeed = {
       riskTier: "high",
       assignee: "Security Reviewer",
       requestSource: "multica_issue",
-      acceptanceCriteria: [
-        {
-          id: "ac_demo_105_1",
-          text: "Protected side effect waits for manual approval.",
-          required: true,
-          satisfied: true,
-        },
-        {
-          id: "ac_demo_105_2",
-          text: "Secret-shaped evidence is redacted and marked generated fake.",
-          required: true,
-          satisfied: true,
-        },
-      ],
+      acceptanceCriteria: highRiskCriteria,
       planApproval: {
         state: "pending",
         requiredBefore: "protected_side_effect",
@@ -437,60 +552,76 @@ export const demoReviewControlSeed: DemoReviewControlSeed = {
         ],
         missingEvidence: ["security.manual-approval-decision"],
       },
-      reviewPacket: {
-        packetId: "packet_demo_105",
-        generatedAt: "2026-06-01T16:44:00.000Z",
+      reviewPacket: packet({
+        issueKey: "DEMO-105",
         summary:
-          "Manual approval is required before the protected action can proceed.",
-        changedFiles: [
-          "contracts/fixtures/policy-decision.deny.high-risk-runtime.json",
-        ],
-        artifacts: [
-          "artifact_demo_105_policy_gate",
-          "artifact_demo_105_redaction_scan",
-        ],
-        acceptanceChecklist: [
+          "DEMO-105: Manual approval is required before the protected action can proceed.",
+        changedArtifacts: [
           {
-            id: "ac_demo_105_1",
-            text: "Protected side effect waits for manual approval.",
-            required: true,
-            satisfied: true,
+            path: "contracts/fixtures/policy-decision.deny.high-risk-runtime.json",
+            kind: "contract",
+            riskTags: ["security", "provider"],
           },
+        ],
+        acceptanceCriteria: highRiskCriteria,
+        verificationEvidence: [
           {
-            id: "ac_demo_105_2",
-            text: "Secret-shaped evidence is redacted and marked generated fake.",
-            required: true,
-            satisfied: true,
+            id: "ev_demo_105_policy_gate",
+            kind: "review",
+            status: "blocked",
+            summary: "Protected action stayed paused behind manual approval.",
+            artifactRefs: ["artifact_demo_105_policy_gate"],
+            correlationId: "corr_demo_105_review",
           },
         ],
         riskSignals: [
-          "approval_required",
-          "protected_side_effect",
-          "redacted_fake_secret_shape",
+          {
+            code: "approval_required",
+            severity: "warning",
+            message:
+              "High-risk protected side effect requires manual approval.",
+            evidenceRefs: ["ev_demo_105_policy_gate"],
+          },
+          {
+            code: "high_risk_change",
+            severity: "warning",
+            message:
+              "High-risk artifacts or risk tags require reviewer attention.",
+            evidenceRefs: [
+              "contracts/fixtures/policy-decision.deny.high-risk-runtime.json",
+            ],
+          },
         ],
         uncertainty: [
           "Human approval decision is intentionally not fixture-backed.",
         ],
-        rollbackGuidance:
-          "Keep the protected action paused; do not execute provider calls.",
-        reworkGuidance:
+        rollbackOrReworkGuidance:
           "Attach the manual approval decision or cancel the protected action.",
-        decisionRecommendation: "manual_approval",
-      },
-      auditCorrelation: {
+        missingEvidenceWarnings: ["Missing security.manual-approval-decision"],
+        redactions: ["fake_secret_shaped_placeholder"],
+      }),
+      demoAuditChainSummary: {
         correlationId: "corr_demo_105_review",
         requestId: "req_demo_105_protected_action",
         policyDecisionId: "poldec_demo_105_requires_approval",
-        auditEventIds: [
-          "audit_demo_105_approval_requested",
-          "audit_demo_105_redaction_verified",
+        approvalId: "appr_demo_105_protected_side_effect",
+        evidenceImportId: "evimp_demo_105",
+        reviewPacketId: "rvpkt_demo_105",
+        workflowPath: "denied",
+        eventIds: [
+          "evt_demo_105_approval_requested",
+          "evt_demo_105_packet_generated",
+          "evt_demo_105_redaction_verified",
         ],
-        runTimelineEventIds: ["timeline_demo_105_paused_for_approval"],
       },
-      reviewTimeMetric: {
-        baselineSeconds: 1200,
-        observedSeconds: 540,
-        startedAt: "2026-06-01T16:44:00.000Z",
+      demoReviewTimeSummaryMetric: {
+        source: "demo_summary_metric_not_event_telemetry",
+        derivedFromEventTelemetry: false,
+        baselineHumanReviewMinutes: 20,
+        humanReviewMinutes: 9,
+        completedAgentTasks: 0,
+        reworkLoops: 0,
+        missingStopEvents: 1,
         reviewerRole: "human_reviewer",
       },
       redactionSafety: {
