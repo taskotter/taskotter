@@ -79,6 +79,9 @@ Architecture notes:
 
 - `docs/module-boundaries.md` defines frontend and generated-contract dependency
   boundaries.
+- `docs/integration-assisted-setup-ux-spec.md` defines the UX/spec boundary for
+  proposing agents, skills, routes, and workspace defaults from external
+  metadata before live credential or webhook implementation.
 - `docs/i18n-architecture.md` defines the repository-local internationalization
   architecture, translation resource convention, locale precedence, API message
   policy, and localization QA gates.
