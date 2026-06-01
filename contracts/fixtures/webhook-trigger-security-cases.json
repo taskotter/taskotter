@@ -1,0 +1,141 @@
+{
+  "description": "Generated fake-key webhook signature, freshness, replay, event, and workflow-target fixture cases. No real provider credential material is present.",
+  "fake_key_id": "fake_webhook_key_01",
+  "fake_key_value": "fake-webhook-signing-key-for-taskotter-tests-only",
+  "signature_header": "x-taskotter-signature",
+  "timestamp_header": "x-taskotter-timestamp",
+  "now_epoch_seconds": 1735689600,
+  "freshness_window_seconds": 300,
+  "supported_event_types": ["policy.denied"],
+  "allowed_workflow_targets": ["wfl_allowed_policy_denial"],
+  "cases": [
+    {
+      "name": "valid_request",
+      "expected_status": 202,
+      "body": {
+        "event_id": "evt_valid_policy_denied",
+        "event_type": "policy.denied",
+        "delivery_id": "dlv_valid_policy_denied",
+        "nonce": "nonce_valid_policy_denied",
+        "workflow_id": "wfl_allowed_policy_denial",
+        "resource": {
+          "type": "issue",
+          "id": "iss_visible_allowed"
+        }
+      }
+    },
+    {
+      "name": "invalid_signature",
+      "expected_status": 401,
+      "signature_override": "sha256=0000000000000000000000000000000000000000000000000000000000000000",
+      "body": {
+        "event_id": "evt_invalid_signature",
+        "event_type": "policy.denied",
+        "delivery_id": "dlv_invalid_signature",
+        "nonce": "nonce_invalid_signature",
+        "workflow_id": "wfl_allowed_policy_denial",
+        "resource": {
+          "type": "issue",
+          "id": "iss_rejected_before_verification"
+        }
+      }
+    },
+    {
+      "name": "expired_timestamp",
+      "expected_status": 401,
+      "timestamp": 1735689000,
+      "body": {
+        "event_id": "evt_expired_timestamp",
+        "event_type": "policy.denied",
+        "delivery_id": "dlv_expired_timestamp",
+        "nonce": "nonce_expired_timestamp",
+        "workflow_id": "wfl_allowed_policy_denial",
+        "resource": {
+          "type": "issue",
+          "id": "iss_rejected_by_freshness"
+        }
+      }
+    },
+    {
+      "name": "reused_nonce",
+      "expected_status": 409,
+      "preseen_nonces": ["nonce_reused_by_attacker"],
+      "body": {
+        "event_id": "evt_reused_nonce",
+        "event_type": "policy.denied",
+        "delivery_id": "dlv_reused_nonce",
+        "nonce": "nonce_reused_by_attacker",
+        "workflow_id": "wfl_allowed_policy_denial",
+        "resource": {
+          "type": "issue",
+          "id": "iss_rejected_by_nonce"
+        }
+      }
+    },
+    {
+      "name": "duplicate_delivery",
+      "expected_status": 409,
+      "preseen_delivery_ids": ["dlv_duplicate_policy_denied"],
+      "body": {
+        "event_id": "evt_duplicate_delivery",
+        "event_type": "policy.denied",
+        "delivery_id": "dlv_duplicate_policy_denied",
+        "nonce": "nonce_duplicate_delivery",
+        "workflow_id": "wfl_allowed_policy_denial",
+        "resource": {
+          "type": "issue",
+          "id": "iss_rejected_by_delivery"
+        }
+      }
+    },
+    {
+      "name": "unsupported_event_type",
+      "expected_status": 400,
+      "body": {
+        "event_id": "evt_unsupported_event_type",
+        "event_type": "workflow.failed",
+        "delivery_id": "dlv_unsupported_event_type",
+        "nonce": "nonce_unsupported_event_type",
+        "workflow_id": "wfl_allowed_policy_denial",
+        "resource": {
+          "type": "issue",
+          "id": "iss_rejected_by_event"
+        }
+      }
+    },
+    {
+      "name": "allowed_workflow_target",
+      "expected_status": 202,
+      "body": {
+        "event_id": "evt_allowed_workflow_target",
+        "event_type": "policy.denied",
+        "delivery_id": "dlv_allowed_workflow_target",
+        "nonce": "nonce_allowed_workflow_target",
+        "workflow_id": "wfl_allowed_policy_denial",
+        "resource": {
+          "type": "issue",
+          "id": "iss_allowed_target"
+        }
+      }
+    },
+    {
+      "name": "denied_workflow_target",
+      "expected_status": 403,
+      "hidden_resource_fragments": [
+        "wfl_hidden_sensitive_target",
+        "iss_hidden_target"
+      ],
+      "body": {
+        "event_id": "evt_denied_workflow_target",
+        "event_type": "policy.denied",
+        "delivery_id": "dlv_denied_workflow_target",
+        "nonce": "nonce_denied_workflow_target",
+        "workflow_id": "wfl_hidden_sensitive_target",
+        "resource": {
+          "type": "issue",
+          "id": "iss_hidden_target"
+        }
+      }
+    }
+  ]
+}
