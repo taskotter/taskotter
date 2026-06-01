@@ -137,6 +137,7 @@ const requiredStages = new Set([
   "gateway_request",
   "mcp_call_denied",
   "usage_event",
+  "audit_event",
   "artifact_log_event",
   "final_result",
 ]);
@@ -163,6 +164,46 @@ for (const event of chainEvents) {
   );
 }
 
+for (const event of chainEvents) {
+  assert.ok(
+    !Object.hasOwn(event, "event_id"),
+    `${event.stage} must use canonical id, not event_id`,
+  );
+  for (const field of [
+    "id",
+    "type",
+    "version",
+    "occurred_at",
+    "source",
+    "working_group_id",
+    "actor",
+    "resource",
+    "payload",
+  ]) {
+    assert.ok(Object.hasOwn(event, field), `${event.stage} missing ${field}`);
+  }
+}
+
+const canonicalReferences = new Map(
+  chainEvents
+    .filter((event) => event.event_shape === "canonical_event_reference")
+    .map((event) => [event.stage, event]),
+);
+assert.deepEqual([...canonicalReferences.keys()].sort(), [
+  "audit_event",
+  "usage_event",
+]);
+assert.equal(
+  canonicalReferences.get("usage_event").canonical_fixture_path,
+  "contracts/fixtures/usage-event.high-risk-runtime-denied.json",
+  "usage chain stage must reference the canonical denied usage fixture",
+);
+assert.equal(
+  canonicalReferences.get("audit_event").canonical_fixture_path,
+  "contracts/fixtures/audit-event.high-risk-runtime-denied.json",
+  "audit chain stage must reference the canonical denied audit fixture",
+);
+
 const runnerDispatch = chainEvents.find(
   (event) => event.stage === "runner_dispatch",
 );
@@ -170,6 +211,37 @@ assert.equal(
   runnerDispatch.protocol_version,
   matrix.remote.fixture_protocol,
   "runner dispatch event must stay compatible with remote protocol fixtures",
+);
+assert.equal(
+  syntheticChain.cross_repo_evidence.remote.lineage_model,
+  "dispatch_fragment_requires_control_plane_join",
+  "remote dispatch cannot claim standalone full-chain reconstruction",
+);
+assert.equal(
+  remoteDispatch.payload.correlation_id,
+  "corr_fixture_echo_001",
+  "remote compatibility fixture preserves existing remote fixture vocabulary",
+);
+assert.notEqual(
+  remoteDispatch.payload.correlation_id,
+  syntheticChain.chain.correlation_id,
+  "remote dispatch fixture must not be mistaken for a complete synthetic chain record",
+);
+assert.equal(
+  Object.hasOwn(remoteDispatch.payload, "request_id"),
+  false,
+  "remote dispatch fixture does not carry request_id; control-plane join is required",
+);
+assert.equal(
+  Object.hasOwn(remoteDispatch.payload, "policy_decision_id"),
+  false,
+  "remote dispatch fixture does not carry policy_decision_id; control-plane join is required",
+);
+assert.ok(
+  syntheticChain.cross_repo_evidence.remote.required_control_plane_join_keys.includes(
+    "policy_decision_id",
+  ),
+  "remote lineage evidence must declare the control-plane policy decision join",
 );
 
 for (const gatewayStage of ["gateway_request", "mcp_call_denied"]) {
