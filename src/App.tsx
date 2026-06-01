@@ -32,7 +32,7 @@ import type {
 } from "./data/contracts";
 import { taskOtterDataAdapter } from "./data/taskotterAdapter";
 import { createI18n, resolveLocalePreferences } from "./i18n";
-import type { TranslationKey } from "./i18n/types";
+import type { TranslationKey, TranslationValues } from "./i18n/types";
 
 type I18n = ReturnType<typeof createI18n>;
 
@@ -129,7 +129,20 @@ function policyLabel(i18n: I18n, policyState: IssueSummary["policyState"]) {
 }
 
 function renderText(i18n: I18n, value: DisplayText | LocalizedText) {
-  return "text" in value ? value.text : i18n.t(value.key, value.values);
+  if ("text" in value) return value.text;
+  if ("dateTime" in value) return i18n.formatDateTime(value.dateTime);
+  if ("number" in value) return i18n.formatNumber(value.number);
+
+  const renderedValues = Object.fromEntries(
+    Object.entries(value.values ?? {}).map(([key, nestedValue]) => [
+      key,
+      typeof nestedValue === "object"
+        ? renderText(i18n, nestedValue)
+        : nestedValue,
+    ]),
+  ) as TranslationValues;
+
+  return i18n.t(value.key, renderedValues);
 }
 
 function AppShell({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
@@ -348,7 +361,9 @@ function IssueRow({
         </strong>
         <p>
           {issue.assignee} ·{" "}
-          {i18n.t("issues.row.updated", { value: issue.updatedAt })}
+          {i18n.t("issues.row.updated", {
+            value: renderText(i18n, issue.updatedAt),
+          })}
         </p>
       </div>
       <div className="issue-row-meta">
@@ -455,7 +470,7 @@ function IssueDetail({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
                     `issues.comment.role.${comment.role}` as TranslationKey,
                   )}
                 </span>
-                <time>{comment.createdAt}</time>
+                <time>{renderText(i18n, comment.createdAt)}</time>
               </header>
               <p>{comment.body}</p>
               {comment.replies?.map((reply) => (
@@ -467,7 +482,7 @@ function IssueDetail({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
                         `issues.comment.role.${reply.role}` as TranslationKey,
                       )}
                     </span>
-                    <time>{reply.createdAt}</time>
+                    <time>{renderText(i18n, reply.createdAt)}</time>
                   </header>
                   <p>{reply.body}</p>
                 </article>

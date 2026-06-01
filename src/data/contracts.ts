@@ -19,10 +19,14 @@ export type Severity = "neutral" | "success" | "warning" | "danger" | "info";
 
 export type LocalizedText = {
   key: import("../i18n/types").TranslationKey;
-  values?: import("../i18n/types").TranslationValues;
+  values?: Record<string, string | number | DisplayText>;
 };
 
-export type DisplayText = LocalizedText | { text: string };
+export type DisplayText =
+  | LocalizedText
+  | { text: string }
+  | { dateTime: string }
+  | { number: number };
 
 export interface WorkingGroup {
   id: string;
@@ -43,7 +47,7 @@ export interface IssueSummary {
   priority: "low" | "medium" | "high" | "urgent";
   assignee: string;
   labels: string[];
-  updatedAt: string;
+  updatedAt: DisplayText;
   commentCount: number;
   runStatus: RunStatus;
   policyState: "allowed" | "policy_denied" | "cost_limited" | "runner_offline";
@@ -55,7 +59,7 @@ export interface Comment {
   author: string;
   role: "human" | "agent";
   body: string;
-  createdAt: string;
+  createdAt: DisplayText;
   replies?: Comment[];
 }
 

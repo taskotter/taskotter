@@ -104,13 +104,13 @@ test("issue row metadata chips stay visible inside the workspace", async ({
   });
 });
 
-test("pseudo locale renders system copy while preserving user-authored issue content", async ({
+test("pseudo locale renders system copy and de-DE formatting while preserving user-authored issue content", async ({
   page,
 }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem(
       "taskotter.localePreferences",
-      JSON.stringify({ userLanguage: "en-XA" }),
+      JSON.stringify({ userLanguage: "en-XA", formattingLocale: "de-DE" }),
     );
   });
 
@@ -127,6 +127,8 @@ test("pseudo locale renders system copy while preserving user-authored issue con
   await expect(
     page.getByRole("heading", { name: /\[!! Àgënt rün prõgrëss !!\]/ }),
   ).toBeVisible();
+  await expect(page.getByText(/30\. Mai, 09:04/).first()).toBeVisible();
+  await expect(page.getByText(/\[!! 1\.200ms, 2 tõõls !!\]/)).toBeVisible();
 
   await expect(
     page.getByRole("heading", {

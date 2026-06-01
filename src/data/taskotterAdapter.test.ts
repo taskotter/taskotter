@@ -227,8 +227,8 @@ describe("generated TaskOtter adapter mapping", () => {
       detail: {
         key: "issues.run.usageDetail",
         values: {
-          durationMs: "840",
-          toolCount: "1",
+          durationMs: { number: 840 },
+          toolCount: { number: 1 },
         },
       },
     });

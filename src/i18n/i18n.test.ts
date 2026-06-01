@@ -56,6 +56,16 @@ describe("i18n resource smoke fixtures", () => {
     expect(i18n.plural("issues.row.comments", 3)).toBe("3 comments");
   });
 
+  it("keeps interpolation placeholders stable in pseudo-localized strings", () => {
+    const i18n = createI18n(
+      resolveLocalePreferences({ userLanguage: "en-XA" }),
+    );
+
+    expect(
+      i18n.t("issues.run.usageDetail", { durationMs: 1200, toolCount: 2 }),
+    ).toBe("[!! 1200ms, 2 tõõls !!]");
+  });
+
   it("formats dates with explicit formatting locale and timezone", () => {
     const i18n = createI18n(
       resolveLocalePreferences({
