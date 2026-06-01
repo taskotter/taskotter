@@ -633,6 +633,7 @@ name = "taskotter-control-plane"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "http",
  "serde",
  "serde_json",
  "thiserror",

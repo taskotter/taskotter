@@ -39,3 +39,24 @@ for the currently supported first-party runner and gateway protocol versions.
 fixtures, and the repo-local runner/gateway compatibility fixtures all reference
 declared versions and preserve the policy, request, and credential boundaries
 expected by `taskotter-remote` and `taskotter-gateway`.
+
+`contracts/fixtures/audit-chain.synthetic-correlation-run.json` is a synthetic
+correlation fixture for reconstructing one generated user request through
+control-plane policy and approval evidence, runner dispatch, gateway request,
+hosted MCP denial, usage, artifact/log summary, and final result events. It uses
+only fake opaque references and redacted summaries. The fixture is validated by
+`contracts/schemas/audit-chain-fixture.schema.json`; each stage carries the
+canonical event envelope fields `id`, `type`, `version`, `occurred_at`, `source`,
+`working_group_id`, `actor`, `resource`, `correlation_id`, `request_id`, and
+`payload`.
+
+The `usage_event` and `audit_event` stages are canonical event references, not
+parallel summary records. They point to the existing usage and audit event
+fixtures and schemas so changes to those envelopes are still caught by the
+normal schema and compatibility checks.
+
+The remote runner dispatch evidence is intentionally modeled as a dispatch
+fragment. `remote.v1alpha1` `job.dispatch` carries only part of the full lineage;
+request id and policy-decision lineage must be reconstructed by joining the
+runner dispatch fragment to the control-plane chain record. Export, delete,
+legal hold, and retention behavior remain out of scope for this fixture.

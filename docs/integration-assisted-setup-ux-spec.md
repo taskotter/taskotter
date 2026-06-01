@@ -248,12 +248,12 @@ Apply behavior:
 
 Allowed first-version metadata categories:
 
-| Platform family | Allowed metadata | Setup use |
-| --- | --- | --- |
-| Confluence-like docs | Space names, page tree structure, labels, owner/team metadata when exposed, freshness timestamps | Suggest knowledge-focused agents, documentation skills, evidence expectations, and routing by document space |
-| Linear/Jira-like issue systems | Project names, issue types, labels, components, workflow state names, priority names, team names, custom-field names without raw values unless explicitly allowed | Suggest delivery agents, routing rules, issue templates, review gates, and workspace defaults |
-| GitHub Issues-like trackers | Repository names, labels, milestones, issue templates, project names, assignee/team metadata where permissioned | Suggest triage agents, routing rules, issue templates, and evidence expectations |
-| Git repositories | Repository names, default branch names, top-level directory names, package manifests, CODEOWNERS-style ownership metadata, README/doc index metadata | Suggest repo-aware skills, module-specific routing, test expectations, and review gates |
+| Platform family                | Allowed metadata                                                                                                                                                  | Setup use                                                                                                    |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Confluence-like docs           | Space names, page tree structure, labels, owner/team metadata when exposed, freshness timestamps                                                                  | Suggest knowledge-focused agents, documentation skills, evidence expectations, and routing by document space |
+| Linear/Jira-like issue systems | Project names, issue types, labels, components, workflow state names, priority names, team names, custom-field names without raw values unless explicitly allowed | Suggest delivery agents, routing rules, issue templates, review gates, and workspace defaults                |
+| GitHub Issues-like trackers    | Repository names, labels, milestones, issue templates, project names, assignee/team metadata where permissioned                                                   | Suggest triage agents, routing rules, issue templates, and evidence expectations                             |
+| Git repositories               | Repository names, default branch names, top-level directory names, package manifests, CODEOWNERS-style ownership metadata, README/doc index metadata              | Suggest repo-aware skills, module-specific routing, test expectations, and review gates                      |
 
 Excluded by default:
 
