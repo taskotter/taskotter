@@ -38,6 +38,10 @@ function validate(
         true,
         `${location} must be integer`,
       );
+    } else if (schema.type === "number") {
+      assert.equal(typeof value, "number", `${location} must be number`);
+    } else if (schema.type === "null") {
+      assert.equal(value, null, `${location} must be null`);
     } else {
       assert.equal(
         typeof value,
@@ -45,6 +49,15 @@ function validate(
         `${location} must be ${schema.type}`,
       );
     }
+  }
+  if (schema.not && schemaMatches(root, schema.not, value)) {
+    throw new Error(`${location} must not match forbidden schema`);
+  }
+  if (schema.oneOf) {
+    const matchCount = schema.oneOf.filter((childSchema) =>
+      schemaMatches(root, resolveRef(root, childSchema), value),
+    ).length;
+    assert.equal(matchCount, 1, `${location} must match exactly one schema`);
   }
   if (schema.pattern && typeof value === "string") {
     assert.match(
@@ -94,6 +107,39 @@ function validate(
         Object.hasOwn(schema.properties, key),
         `${location}.${key} is not allowed`,
       );
+    }
+  }
+  if (
+    schema.propertyNames &&
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  ) {
+    for (const key of Object.keys(value)) {
+      validate(
+        resolveRef(root, schema.propertyNames),
+        key,
+        `${location}.${key} property name`,
+        root,
+      );
+    }
+  }
+  if (
+    schema.additionalProperties &&
+    schema.additionalProperties !== false &&
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  ) {
+    for (const [key, childValue] of Object.entries(value)) {
+      if (!schema.properties || !Object.hasOwn(schema.properties, key)) {
+        validate(
+          resolveRef(root, schema.additionalProperties),
+          childValue,
+          `${location}.${key}`,
+          root,
+        );
+      }
     }
   }
   if (
@@ -236,6 +282,20 @@ test("workflow fixtures only carry secret and integration references", async () 
   }
   assert.match(serialized, /"secret_ref":"sec_/);
   assert.match(serialized, /"integration_ref":"int_/);
+});
+
+test("workflow schema rejects raw credential-shaped step inputs", async () => {
+  const schema = await readJson(
+    "contracts/schemas/workflow-definition.schema.json",
+  );
+  const invalidWorkflow = await readJson(
+    "contracts/fixtures/workflow-definition.raw-credential-input.invalid.json",
+  );
+
+  assert.throws(
+    () => validate(schema, invalidWorkflow),
+    /access_token property name/,
+  );
 });
 
 test("generated schema artifacts mirror canonical schema sources", async () => {

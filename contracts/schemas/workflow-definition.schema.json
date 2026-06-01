@@ -530,8 +530,7 @@
           }
         },
         "with": {
-          "type": "object",
-          "description": "Non-secret step inputs. Sensitive values must be represented through secret_refs or integration_refs."
+          "$ref": "#/$defs/nonSecretInputObject"
         },
         "side_effect": {
           "type": "object",
@@ -564,6 +563,46 @@
           "then": {
             "required": ["approval_gate_ref"]
           }
+        }
+      ]
+    },
+    "nonSecretInputObject": {
+      "type": "object",
+      "description": "Non-secret step inputs. Sensitive values must be represented through secret_refs or integration_refs.",
+      "propertyNames": {
+        "not": {
+          "pattern": "([Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Aa][Cc][Cc][Ee][Ss][Ss][_-]?[Tt][Oo][Kk][Ee][Nn]|[Rr][Ee][Ff][Rr][Ee][Ss][Hh][_-]?[Tt][Oo][Kk][Ee][Nn]|[Pp][Rr][Ii][Vv][Aa][Tt][Ee][_-]?[Kk][Ee][Yy]|[Cc][Ll][Ii][Ee][Nn][Tt][_-]?[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll])"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/nonSecretInputValue"
+      }
+    },
+    "nonSecretInputValue": {
+      "oneOf": [
+        {
+          "type": "string",
+          "not": {
+            "pattern": "([Bb][Ee][Aa][Rr][Ee][Rr]\\s+[A-Za-z0-9._\\-]+|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_\\-]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)"
+          }
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonSecretInputValue"
+          }
+        },
+        {
+          "$ref": "#/$defs/nonSecretInputObject"
         }
       ]
     },
