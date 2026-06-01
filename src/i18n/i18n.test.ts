@@ -43,6 +43,21 @@ describe("i18n resource smoke fixtures", () => {
     );
   });
 
+  it("keeps interpolation placeholders usable under pseudo-localization", () => {
+    const i18n = createI18n(
+      resolveLocalePreferences({ userLanguage: "en-XA" }),
+    );
+
+    expect(
+      i18n.t("webShell.workspace.switcherLabel", {
+        name: "Platform Delivery",
+        role: "admin",
+        memberCount: 14,
+        memberLabel: "members",
+      }),
+    ).toContain("Platform Delivery");
+  });
+
   it("hides missing keys behind a localized fallback string", () => {
     const i18n = createI18n(resolveLocalePreferences({ userLanguage: "en" }));
 
@@ -67,6 +82,23 @@ describe("i18n resource smoke fixtures", () => {
 
     expect(i18n.formatDateTime("2026-06-01T12:30:00Z")).toMatch(
       /Jun 01, 12:30 PM/,
+    );
+  });
+
+  it("keeps content language separate from formatting locale and timezone", () => {
+    const i18n = createI18n(
+      resolveLocalePreferences({
+        userLanguage: "en-XA",
+        formattingLocale: "de-DE",
+        timeZone: "America/Los_Angeles",
+      }),
+    );
+
+    expect(i18n.t("webShell.page.title")).toContain("[!!");
+    expect(i18n.formatNumber(1234567.89)).toBe("1.234.567,89");
+    expect(i18n.formatCurrency(1234.5, "EUR")).toContain("1.234,50");
+    expect(i18n.formatDateTime("2026-06-01T12:30:00Z")).toMatch(
+      /Jun 01, 05:30 AM|01\. Juni, 05:30/,
     );
   });
 });
