@@ -98,6 +98,21 @@ pub enum ReservationStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageSecuritySignalCode {
+    IdempotencyPayloadMismatch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct UsageSecuritySignal {
+    pub signal_id: Uuid,
+    pub idempotency_key: String,
+    pub existing_event_id: String,
+    pub rejected_event_id: String,
+    pub reason_code: UsageSecuritySignalCode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UsageActorRef {
     pub r#type: String,
@@ -236,6 +251,14 @@ pub enum UsageValidationError {
     UnsupportedType,
     #[error("usage event denied before dispatch requires denial_reason")]
     MissingDenialReason,
+    #[error("{field} must use an allowed opaque reference prefix and length")]
+    InvalidReference { field: &'static str },
+    #[error("{field} contains a sensitive pattern")]
+    SensitivePattern { field: &'static str },
+    #[error("denial_reason must be an allowlisted safe reason code")]
+    UnsafeDenialReason,
+    #[error("runtime_capability must be an allowlisted capability reference")]
+    InvalidRuntimeCapability,
 }
 
 impl UsagePolicySet {
@@ -255,12 +278,7 @@ impl UsagePolicySet {
             } else {
                 QuotaEnforcement::HardDeny
             },
-            denial_reason: (!allowed).then(|| {
-                format!(
-                    "quota hard deny before dispatch: {}",
-                    failed_limits.join(",")
-                )
-            }),
+            denial_reason: (!allowed).then(|| "usage_limit_reached".to_owned()),
             failed_limits,
         }
     }
@@ -281,19 +299,43 @@ impl UsageLimit {
 
 impl UsageAuditEventV1 {
     pub fn validate_for_ingestion(&self) -> Result<(), UsageValidationError> {
-        require_text("id", &self.id)?;
+        require_opaque_ref("id", &self.id, &["evt_"])?;
         require_text("occurred_at", &self.occurred_at)?;
-        require_text("working_group_id", &self.working_group_id)?;
-        require_text("correlation_id", &self.correlation_id)?;
-        require_text("request_id", &self.request_id)?;
-        require_text("policy_decision_id", &self.policy_decision_id)?;
-        require_text("idempotency_key", &self.idempotency_key)?;
-        require_text("actor.id", &self.actor.id)?;
-        require_text("actor.type", &self.actor.r#type)?;
-        require_text("resource.id", &self.resource.id)?;
-        require_text("resource.type", &self.resource.r#type)?;
-        require_text("payload.subject.id", &self.payload.subject.id)?;
-        require_text("payload.subject.type", &self.payload.subject.r#type)?;
+        require_opaque_ref("working_group_id", &self.working_group_id, &["wg_"])?;
+        require_opaque_ref("correlation_id", &self.correlation_id, &["corr_"])?;
+        require_opaque_ref("request_id", &self.request_id, &["req_"])?;
+        require_opaque_ref("policy_decision_id", &self.policy_decision_id, &["poldec_"])?;
+        require_opaque_ref("idempotency_key", &self.idempotency_key, &["usage_"])?;
+        require_allowed_value(
+            "actor.type",
+            &self.actor.r#type,
+            &["user", "agent", "service"],
+        )?;
+        require_opaque_ref(
+            "actor.id",
+            &self.actor.id,
+            &actor_prefixes(&self.actor.r#type),
+        )?;
+        require_allowed_value(
+            "resource.type",
+            &self.resource.r#type,
+            &["provider", "mcp_server", "runner", "job", "integration"],
+        )?;
+        require_opaque_ref(
+            "resource.id",
+            &self.resource.id,
+            &resource_prefixes(&self.resource.r#type),
+        )?;
+        require_allowed_value(
+            "payload.subject.type",
+            &self.payload.subject.r#type,
+            &["agent_run", "gateway_request", "workflow_run", "runner_job"],
+        )?;
+        require_opaque_ref(
+            "payload.subject.id",
+            &self.payload.subject.id,
+            &subject_prefixes(&self.payload.subject.r#type),
+        )?;
 
         if self.version != "0.1.0" {
             return Err(UsageValidationError::UnsupportedVersion);
@@ -309,8 +351,29 @@ impl UsageAuditEventV1 {
         {
             return Err(UsageValidationError::MissingDenialReason);
         }
+        if let Some(reason) = &self.denial_reason {
+            require_safe_denial_reason(reason)?;
+        }
+        if let Some(reservation_id) = &self.reservation_id {
+            require_opaque_ref("reservation_id", reservation_id, &["resv_"])?;
+        }
+        if let Some(runtime_capability) = &self.payload.measurements.runtime_capability {
+            require_runtime_capability(runtime_capability)?;
+        }
 
         Ok(())
+    }
+
+    pub fn has_same_billing_fingerprint(&self, other: &Self) -> bool {
+        self.working_group_id == other.working_group_id
+            && self.source == other.source
+            && self.actor == other.actor
+            && self.resource == other.resource
+            && self.policy_decision_id == other.policy_decision_id
+            && self.payload == other.payload
+            && self.reservation_id == other.reservation_id
+            && self.status == other.status
+            && self.denial_reason == other.denial_reason
     }
 
     pub fn to_ledger_entry(&self) -> Result<UsageLedgerEntry, UsageValidationError> {
@@ -412,6 +475,126 @@ fn require_text(field: &'static str, value: &str) -> Result<(), UsageValidationE
     if value.trim().is_empty() {
         return Err(UsageValidationError::Required(field));
     }
+    reject_sensitive_pattern(field, value)?;
+
+    Ok(())
+}
+
+fn require_opaque_ref(
+    field: &'static str,
+    value: &str,
+    prefixes: &[&str],
+) -> Result<(), UsageValidationError> {
+    require_text(field, value)?;
+    if value.len() > 80 || !prefixes.iter().any(|prefix| value.starts_with(prefix)) {
+        return Err(UsageValidationError::InvalidReference { field });
+    }
+
+    Ok(())
+}
+
+fn require_allowed_value(
+    field: &'static str,
+    value: &str,
+    allowed: &[&str],
+) -> Result<(), UsageValidationError> {
+    require_text(field, value)?;
+    if !allowed.contains(&value) {
+        return Err(UsageValidationError::InvalidReference { field });
+    }
+
+    Ok(())
+}
+
+fn actor_prefixes(actor_type: &str) -> [&'static str; 1] {
+    match actor_type {
+        "user" => ["usr_"],
+        "agent" => ["agt_"],
+        "service" => ["svc_"],
+        _ => [""],
+    }
+}
+
+fn resource_prefixes(resource_type: &str) -> [&'static str; 1] {
+    match resource_type {
+        "provider" => ["prv_"],
+        "mcp_server" => ["mcp_"],
+        "runner" => ["runr_"],
+        "job" => ["job_"],
+        "integration" => ["int_"],
+        _ => [""],
+    }
+}
+
+fn subject_prefixes(subject_type: &str) -> [&'static str; 1] {
+    match subject_type {
+        "agent_run" => ["run_"],
+        "gateway_request" => ["gwreq_"],
+        "workflow_run" => ["wfrun_"],
+        "runner_job" => ["job_"],
+        _ => [""],
+    }
+}
+
+fn require_safe_denial_reason(reason: &str) -> Result<(), UsageValidationError> {
+    require_text("denial_reason", reason)?;
+    if reason.len() > 80
+        || ![
+            "policy_denied",
+            "usage_limit_reached",
+            "protected_capability_disabled",
+            "quota_exceeded",
+        ]
+        .contains(&reason)
+    {
+        return Err(UsageValidationError::UnsafeDenialReason);
+    }
+
+    Ok(())
+}
+
+fn require_runtime_capability(value: &str) -> Result<(), UsageValidationError> {
+    require_text("runtime_capability", value)?;
+    if value.len() > 80
+        || ![
+            "remote.local_tool_execution",
+            "remote.local_llm_exposure",
+            "remote.external_agent_runtime_adapter",
+            "remote.computer_use_execution",
+            "gateway.hosted_mcp_billing",
+            "gateway.sensitive_provider_routing",
+        ]
+        .contains(&value)
+    {
+        return Err(UsageValidationError::InvalidRuntimeCapability);
+    }
+
+    Ok(())
+}
+
+fn reject_sensitive_pattern(field: &'static str, value: &str) -> Result<(), UsageValidationError> {
+    let normalized = value.to_ascii_lowercase();
+    let sensitive_patterns = [
+        "api_key",
+        "apikey",
+        "access_token",
+        "refresh_token",
+        "private_key",
+        "client_secret",
+        "bearer ",
+        "password",
+        "raw_prompt",
+        "raw_log",
+        "artifact_body",
+        "-----begin",
+    ];
+
+    if sensitive_patterns
+        .iter()
+        .any(|pattern| normalized.contains(pattern))
+    {
+        return Err(UsageValidationError::SensitivePattern { field });
+    }
 
     Ok(())
 }
@@ -457,7 +640,7 @@ mod tests {
         assert_eq!(evaluation.failed_limits, vec!["daily-tokens"]);
         assert_eq!(
             evaluation.denial_reason.as_deref(),
-            Some("quota hard deny before dispatch: daily-tokens")
+            Some("usage_limit_reached")
         );
     }
 

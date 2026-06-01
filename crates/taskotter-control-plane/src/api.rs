@@ -24,7 +24,8 @@ use crate::{
         CostReconciliationStatus, MeteringUnit, QuotaEnforcement, RemoteUsageReportV1,
         ReservationStatus, UsageActorRef, UsageAuditEventV1, UsageEvaluation,
         UsageEvaluationRequest, UsageEventPayload, UsageLedgerEntry, UsageMeasurements,
-        UsageReservation, UsageResourceRef, UsageSourceSurface, UsageSubjectRef,
+        UsageReservation, UsageResourceRef, UsageSecuritySignal, UsageSecuritySignalCode,
+        UsageSourceSurface, UsageSubjectRef,
     },
 };
 
@@ -44,6 +45,7 @@ struct Store {
     usage_events: Vec<UsageAuditEventV1>,
     usage_ledger_entries: Vec<UsageLedgerEntry>,
     usage_reservations: Vec<UsageReservation>,
+    usage_security_signals: Vec<UsageSecuritySignal>,
     remote_usage_reports: Vec<RemoteUsageReportV1>,
 }
 
@@ -230,7 +232,11 @@ async fn evaluate_usage(Json(request): Json<UsageEvaluationRequest>) -> Json<Usa
     post,
     path = "/v1/usage/events",
     request_body = UsageAuditEventV1,
-    responses((status = 202, body = UsageAuditEventV1), (status = 400, body = ErrorResponse))
+    responses(
+        (status = 202, body = UsageAuditEventV1),
+        (status = 400, body = ErrorResponse),
+        (status = 409, body = ErrorResponse)
+    )
 )]
 async fn create_usage_event(
     State(state): State<AppState>,
@@ -247,6 +253,18 @@ async fn create_usage_event(
         .find(|stored| stored.idempotency_key == event.idempotency_key)
         .cloned()
     {
+        if !existing.has_same_billing_fingerprint(&event) {
+            store.usage_security_signals.push(UsageSecuritySignal {
+                signal_id: Uuid::new_v4(),
+                idempotency_key: event.idempotency_key.clone(),
+                existing_event_id: existing.id,
+                rejected_event_id: event.id,
+                reason_code: UsageSecuritySignalCode::IdempotencyPayloadMismatch,
+            });
+            return Err(ApiError::conflict(
+                "idempotency key reused with different usage payload".to_owned(),
+            ));
+        }
         return Ok((StatusCode::ACCEPTED, Json(existing)));
     }
 
@@ -355,6 +373,13 @@ impl ApiError {
         }
     }
 
+    fn conflict(message: String) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            message,
+        }
+    }
+
     fn internal() -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -417,6 +442,8 @@ impl IntoResponse for ApiError {
         UsageMeasurements,
         UsageReservation,
         UsageResourceRef,
+        UsageSecuritySignal,
+        UsageSecuritySignalCode,
         UsageSourceSurface,
         UsageSubjectRef,
         WorkingGroup
@@ -551,10 +578,7 @@ mod tests {
 
         assert_eq!(evaluation["allowed"], false);
         assert_eq!(evaluation["enforcement"], "hard_deny");
-        assert_eq!(
-            evaluation["denial_reason"],
-            "quota hard deny before dispatch: hourly-actions"
-        );
+        assert_eq!(evaluation["denial_reason"], "usage_limit_reached");
         assert_eq!(evaluation["failed_limits"], json!(["hourly-actions"]));
         Ok(())
     }
@@ -609,6 +633,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn idempotency_payload_mismatch_conflicts_and_records_security_signal()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        let request: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/usage-event.gateway-request.json"
+        ))?;
+
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/usage/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let mut mismatched = request;
+        mismatched["id"] = json!("evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EQ");
+        mismatched["policy_decision_id"] = json!("poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EQ");
+        mismatched["payload"]["subject"]["id"] = json!("gwreq_01J9Z4P4BS0M9P2QJ6T8Z6W2EQ");
+        mismatched["payload"]["measurements"]["estimated_cost_micros"] = json!(9900);
+
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/usage/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(mismatched.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+
+        let store = state.store.lock().map_err(|_| "store lock failed")?;
+        assert_eq!(store.usage_events.len(), 1);
+        assert_eq!(store.usage_ledger_entries.len(), 1);
+        assert_eq!(store.usage_security_signals.len(), 1);
+        assert_eq!(
+            store.usage_security_signals[0].reason_code,
+            UsageSecuritySignalCode::IdempotencyPayloadMismatch
+        );
+        drop(store);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn rejects_denied_usage_without_reason_and_sensitive_raw_payloads()
     -> Result<(), Box<dyn std::error::Error>> {
         let mut denied: Value = serde_json::from_str(include_str!(
@@ -642,6 +714,62 @@ mod tests {
             )
             .await?;
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn rejects_sensitive_denial_reason_and_reference_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut denied: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/usage-event.high-risk-runtime-denied.json"
+        ))?;
+        denied["status"] = json!("denied");
+        denied["denial_reason"] = json!("raw_prompt: customer entered bearer token");
+
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/usage/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(denied.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let mut bad_ref: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/usage-event.gateway-request.json"
+        ))?;
+        bad_ref["resource"]["id"] =
+            json!("prv_access_token_customer_sensitive_artifact_body_value_that_should_not_store");
+
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/usage/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(bad_ref.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let mut bad_runtime: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/usage-event.high-risk-runtime-denied.json"
+        ))?;
+        bad_runtime["payload"]["measurements"]["runtime_capability"] =
+            json!("gateway.raw_prompt_billing");
+
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/usage/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(bad_runtime.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         Ok(())
     }
 
