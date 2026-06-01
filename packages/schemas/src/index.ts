@@ -326,8 +326,7 @@ export const GatewayRelayEventSchema = {
           "enum": [
             "primary",
             "fallback",
-            "local_runner",
-            "policy_denied"
+            "denied"
           ]
         },
         "reason_code": {
@@ -504,21 +503,24 @@ export const GatewayRelayEventSchema = {
     },
     "opaquePolicyDecisionId": {
       "type": "string",
-      "pattern": "^poldec_[A-Za-z0-9_:-]{1,120}$"
+      "pattern": "^poldec_[A-Za-z0-9_:-]{1,120}$",
+      "not": {
+        "pattern": "([Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Aa][Cc][Cc][Ee][Ss][Ss][_-]?[Tt][Oo][Kk][Ee][Nn]|[Rr][Ee][Ff][Rr][Ee][Ss][Hh][_-]?[Tt][Oo][Kk][Ee][Nn]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Rr][Ii][Vv][Aa][Tt][Ee][_-]?[Kk][Ee][Yy]|[Cc][Ll][Ii][Ee][Nn][Tt][_-]?[Ss][Ee][Cc][Rr][Ee][Tt]|[Bb][Ee][Aa][Rr][Ee][Rr] |[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Rr][Aa][Ww][_-]?[Pp][Rr][Oo][Mm][Pp][Tt]|[Rr][Aa][Ww][_-]?[Ll][Oo][Gg]|[Rr][Aa][Ww][_-]?[Pp][Aa][Yy][Ll][Oo][Aa][Dd]|[Aa][Rr][Tt][Ii][Ff][Aa][Cc][Tt][_-]?[Bb][Oo][Dd][Yy]|[Cc][Oo][Oo][Kk][Ii][Ee]|[Ss][Ee][Tt]-[Cc][Oo][Oo][Kk][Ii][Ee]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]:|-----[Bb][Ee][Gg][Ii][Nn])"
+      }
     },
     "safeIdentifier": {
       "type": "string",
       "minLength": 1,
       "maxLength": 160,
       "not": {
-        "pattern": "([Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Aa][Cc][Cc][Ee][Ss][Ss][_-]?[Tt][Oo][Kk][Ee][Nn]|[Rr][Ee][Ff][Rr][Ee][Ss][Hh][_-]?[Tt][Oo][Kk][Ee][Nn]|[Pp][Rr][Ii][Vv][Aa][Tt][Ee][_-]?[Kk][Ee][Yy]|[Cc][Ll][Ii][Ee][Nn][Tt][_-]?[Ss][Ee][Cc][Rr][Ee][Tt]|[Bb][Ee][Aa][Rr][Ee][Rr] |[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Rr][Aa][Ww][_-]?[Pp][Rr][Oo][Mm][Pp][Tt]|[Rr][Aa][Ww][_-]?[Ll][Oo][Gg]|[Aa][Rr][Tt][Ii][Ff][Aa][Cc][Tt][_-]?[Bb][Oo][Dd][Yy]|[Ss][Ee][Tt]-[Cc][Oo][Oo][Kk][Ii][Ee]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]:|-----[Bb][Ee][Gg][Ii][Nn])"
+        "pattern": "([Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Aa][Cc][Cc][Ee][Ss][Ss][_-]?[Tt][Oo][Kk][Ee][Nn]|[Rr][Ee][Ff][Rr][Ee][Ss][Hh][_-]?[Tt][Oo][Kk][Ee][Nn]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Rr][Ii][Vv][Aa][Tt][Ee][_-]?[Kk][Ee][Yy]|[Cc][Ll][Ii][Ee][Nn][Tt][_-]?[Ss][Ee][Cc][Rr][Ee][Tt]|[Bb][Ee][Aa][Rr][Ee][Rr] |[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Rr][Aa][Ww][_-]?[Pp][Rr][Oo][Mm][Pp][Tt]|[Rr][Aa][Ww][_-]?[Ll][Oo][Gg]|[Rr][Aa][Ww][_-]?[Pp][Aa][Yy][Ll][Oo][Aa][Dd]|[Aa][Rr][Tt][Ii][Ff][Aa][Cc][Tt][_-]?[Bb][Oo][Dd][Yy]|[Cc][Oo][Oo][Kk][Ii][Ee]|[Ss][Ee][Tt]-[Cc][Oo][Oo][Kk][Ii][Ee]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]:|-----[Bb][Ee][Gg][Ii][Nn])"
       }
     },
     "clientSafeText": {
       "type": "string",
       "maxLength": 4096,
       "not": {
-        "pattern": "([Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Aa][Cc][Cc][Ee][Ss][Ss][_-]?[Tt][Oo][Kk][Ee][Nn]|[Rr][Ee][Ff][Rr][Ee][Ss][Hh][_-]?[Tt][Oo][Kk][Ee][Nn]|[Pp][Rr][Ii][Vv][Aa][Tt][Ee][_-]?[Kk][Ee][Yy]|[Cc][Ll][Ii][Ee][Nn][Tt][_-]?[Ss][Ee][Cc][Rr][Ee][Tt]|[Bb][Ee][Aa][Rr][Ee][Rr] |[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Rr][Aa][Ww][_-]?[Pp][Rr][Oo][Mm][Pp][Tt]|[Rr][Aa][Ww][_-]?[Ll][Oo][Gg]|[Aa][Rr][Tt][Ii][Ff][Aa][Cc][Tt][_-]?[Bb][Oo][Dd][Yy]|[Ss][Ee][Tt]-[Cc][Oo][Oo][Kk][Ii][Ee]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]:|-----[Bb][Ee][Gg][Ii][Nn])"
+        "pattern": "([Aa][Pp][Ii][_-]?[Kk][Ee][Yy]|[Aa][Cc][Cc][Ee][Ss][Ss][_-]?[Tt][Oo][Kk][Ee][Nn]|[Rr][Ee][Ff][Rr][Ee][Ss][Hh][_-]?[Tt][Oo][Kk][Ee][Nn]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Rr][Ii][Vv][Aa][Tt][Ee][_-]?[Kk][Ee][Yy]|[Cc][Ll][Ii][Ee][Nn][Tt][_-]?[Ss][Ee][Cc][Rr][Ee][Tt]|[Bb][Ee][Aa][Rr][Ee][Rr] |[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Rr][Aa][Ww][_-]?[Pp][Rr][Oo][Mm][Pp][Tt]|[Rr][Aa][Ww][_-]?[Ll][Oo][Gg]|[Rr][Aa][Ww][_-]?[Pp][Aa][Yy][Ll][Oo][Aa][Dd]|[Aa][Rr][Tt][Ii][Ff][Aa][Cc][Tt][_-]?[Bb][Oo][Dd][Yy]|[Cc][Oo][Oo][Kk][Ii][Ee]|[Ss][Ee][Tt]-[Cc][Oo][Oo][Kk][Ii][Ee]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn]:|-----[Bb][Ee][Gg][Ii][Nn])"
       }
     }
   }

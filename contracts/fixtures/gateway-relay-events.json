@@ -126,7 +126,7 @@
     "model": "test-model",
     "redaction": "client_safe",
     "route": {
-      "route_type": "policy_denied",
+      "route_type": "denied",
       "reason_code": "policy_denied",
       "policy_decision_id": "poldec_gateway_stream_4"
     },

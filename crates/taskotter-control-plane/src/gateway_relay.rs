@@ -88,8 +88,7 @@ pub struct GatewayRouteEvidence {
 pub enum GatewayRouteType {
     Primary,
     Fallback,
-    LocalRunner,
-    PolicyDenied,
+    Denied,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -186,6 +185,8 @@ pub enum GatewayRelayMappingError {
     Required(&'static str),
     #[error("{field} contains a sensitive pattern")]
     SensitivePattern { field: &'static str },
+    #[error("{field} must use an allowed opaque reference prefix")]
+    InvalidReference { field: &'static str },
     #[error("sequence must start at 0")]
     InvalidSequence,
     #[error("upstream_status must be in the HTTP status code range")]
@@ -196,10 +197,13 @@ impl GatewayStreamRelayInput {
     pub fn into_client_safe_event(
         self,
     ) -> Result<ClientSafeGatewayRelayEvent, GatewayRelayMappingError> {
-        require_non_empty("request_id", &self.request_id)?;
-        require_non_empty("correlation_id", &self.correlation_id)?;
+        require_opaque_ref("request_id", &self.request_id, &["req_"])?;
+        require_opaque_ref("correlation_id", &self.correlation_id, &["corr_"])?;
         require_non_empty("provider", &self.provider)?;
         require_non_empty("model", &self.model)?;
+        if let Some(route) = &self.route {
+            route.validate()?;
+        }
 
         if self.sequence == u32::MAX {
             return Err(GatewayRelayMappingError::InvalidSequence);
@@ -301,6 +305,15 @@ impl GatewayStreamRelayInput {
     }
 }
 
+impl GatewayRouteEvidence {
+    fn validate(&self) -> Result<(), GatewayRelayMappingError> {
+        if let Some(policy_decision_id) = &self.policy_decision_id {
+            require_opaque_ref("policy_decision_id", policy_decision_id, &["poldec_"])?;
+        }
+        Ok(())
+    }
+}
+
 fn terminal_event(
     event_type: ClientSafeGatewayRelayEventType,
     reason_code: GatewayTerminalReasonCode,
@@ -340,6 +353,22 @@ fn require_non_empty(field: &'static str, value: &str) -> Result<(), GatewayRela
     }
 }
 
+fn require_opaque_ref(
+    field: &'static str,
+    value: &str,
+    allowed_prefixes: &[&str],
+) -> Result<(), GatewayRelayMappingError> {
+    require_non_empty(field, value)?;
+    if allowed_prefixes
+        .iter()
+        .any(|prefix| value.starts_with(prefix))
+    {
+        Ok(())
+    } else {
+        Err(GatewayRelayMappingError::InvalidReference { field })
+    }
+}
+
 fn require_client_safe_text(
     field: &'static str,
     value: &str,
@@ -351,10 +380,16 @@ fn require_client_safe_text(
         "api_key",
         "access_token",
         "refresh_token",
+        "credential",
+        "secret",
         "client_secret",
         "private_key",
         "raw_prompt",
         "raw_log",
+        "raw_payload",
+        "artifact_body",
+        "password",
+        "cookie",
         "set-cookie",
         "-----begin",
     ];
@@ -573,7 +608,7 @@ mod tests {
                     safe_message: "Request denied by policy.".to_owned(),
                 },
                 route: Some(GatewayRouteEvidence {
-                    route_type: GatewayRouteType::PolicyDenied,
+                    route_type: GatewayRouteType::Denied,
                     reason_code: GatewayRoutingReasonCode::PolicyDenied,
                     policy_decision_id: Some("poldec_gateway_stream_4".to_owned()),
                 }),
@@ -592,6 +627,7 @@ mod tests {
 
         assert_eq!(mapped, relay_fixture_events()?);
         assert_eq!(mapped[0]["type"], json!("gateway.relay.started"));
+        assert_eq!(mapped[7]["route"]["route_type"], json!("denied"));
         assert!(mapped[0].get("event_type").is_none());
         Ok(())
     }
@@ -612,6 +648,63 @@ mod tests {
             input.into_client_safe_event(),
             Err(GatewayRelayMappingError::SensitivePattern {
                 field: "safe_message"
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_schema_sensitive_patterns_and_invalid_route_refs() {
+        for safe_message in [
+            "password leaked",
+            "artifact_body leaked",
+            "raw_payload leaked",
+            "credential leaked",
+            "client secret leaked",
+            "Set-Cookie leaked",
+        ] {
+            let input = base_input(
+                GatewayNormalizedStreamEvent::Failed {
+                    reason_code: GatewayTerminalReasonCode::InternalGatewayError,
+                    safe_message: safe_message.to_owned(),
+                    retryable: false,
+                    upstream_status: Some(500),
+                },
+                0,
+            );
+
+            assert_eq!(
+                input.into_client_safe_event(),
+                Err(GatewayRelayMappingError::SensitivePattern {
+                    field: "safe_message"
+                })
+            );
+        }
+
+        let mut input = base_input(GatewayNormalizedStreamEvent::Started, 0);
+        input.route = Some(GatewayRouteEvidence {
+            route_type: GatewayRouteType::Denied,
+            reason_code: GatewayRoutingReasonCode::PolicyDenied,
+            policy_decision_id: Some("secret_policy_decision".to_owned()),
+        });
+
+        assert_eq!(
+            input.into_client_safe_event(),
+            Err(GatewayRelayMappingError::SensitivePattern {
+                field: "policy_decision_id"
+            })
+        );
+
+        let mut input = base_input(GatewayNormalizedStreamEvent::Started, 0);
+        input.route = Some(GatewayRouteEvidence {
+            route_type: GatewayRouteType::Denied,
+            reason_code: GatewayRoutingReasonCode::PolicyDenied,
+            policy_decision_id: Some("decision_gateway_stream_4".to_owned()),
+        });
+
+        assert_eq!(
+            input.into_client_safe_event(),
+            Err(GatewayRelayMappingError::InvalidReference {
+                field: "policy_decision_id"
             })
         );
     }

@@ -502,6 +502,11 @@ test("gateway relay fixture covers client-safe streaming state mapping", async (
   }
 
   assert.deepEqual(eventTypes, new Set(schema.properties.type.enum));
+  assert.equal(
+    events.find((event) => event.type === "gateway.relay.denied").route
+      .route_type,
+    "denied",
+  );
 });
 
 test("gateway relay schema rejects sensitive provider details", async () => {
@@ -517,6 +522,12 @@ test("gateway relay schema rejects sensitive provider details", async () => {
     for (const safeMessage of [
       "authorization: bearer token leaked",
       "Authorization: Bearer token leaked",
+      "password leaked",
+      "artifact_body leaked",
+      "raw_payload leaked",
+      "credential leaked",
+      "secret leaked",
+      "Set-Cookie leaked",
     ]) {
       const unsafe = structuredClone(started);
       unsafe.payload = {
@@ -531,6 +542,10 @@ test("gateway relay schema rejects sensitive provider details", async () => {
         /must match exactly one schema/,
       );
     }
+
+    const unsafeRoute = structuredClone(started);
+    unsafeRoute.route.policy_decision_id = "poldec_secret_policy_decision";
+    assert.throws(() => validate(schema, unsafeRoute), /forbidden schema/);
   }
 });
 
