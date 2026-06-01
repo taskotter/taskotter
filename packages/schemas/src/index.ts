@@ -84,6 +84,15 @@ export const AuditEventSchema = {
             "succeeded",
             "failed"
           ]
+        },
+        "runtime_capability": {
+          "$ref": "#/$defs/highRiskRuntimeCapability"
+        },
+        "feature_flag": {
+          "type": "string"
+        },
+        "approval_ref": {
+          "type": "string"
         }
       }
     }
@@ -125,6 +134,17 @@ export const AuditEventSchema = {
           "type": "string"
         }
       }
+    },
+    "highRiskRuntimeCapability": {
+      "type": "string",
+      "enum": [
+        "remote.local_tool_execution",
+        "remote.local_llm_exposure",
+        "remote.external_agent_runtime_adapter",
+        "remote.computer_use_execution",
+        "gateway.hosted_mcp_billing",
+        "gateway.sensitive_provider_routing"
+      ]
     }
   }
 } as const;
@@ -381,6 +401,12 @@ export const PolicyDecisionSchema = {
             "type": "string"
           }
         },
+        "high_risk_capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/highRiskCapabilityGate"
+          }
+        },
         "max_runtime_seconds": {
           "type": "integer",
           "minimum": 1
@@ -423,6 +449,65 @@ export const PolicyDecisionSchema = {
         },
         "id": {
           "type": "string"
+        }
+      }
+    },
+    "highRiskCapabilityGate": {
+      "type": "object",
+      "required": [
+        "capability",
+        "feature_flag",
+        "enabled",
+        "effect",
+        "metering_unit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "capability": {
+          "type": "string",
+          "enum": [
+            "remote.local_tool_execution",
+            "remote.local_llm_exposure",
+            "remote.external_agent_runtime_adapter",
+            "remote.computer_use_execution",
+            "gateway.hosted_mcp_billing",
+            "gateway.sensitive_provider_routing"
+          ]
+        },
+        "feature_flag": {
+          "type": "string",
+          "enum": [
+            "remote.local_tools.enabled",
+            "remote.local_llm.enabled",
+            "remote.external_agent_adapters.enabled",
+            "remote.computer_use.enabled",
+            "gateway.hosted_mcp_billing.enabled",
+            "gateway.provider_routing.enabled"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "effect": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny"
+          ]
+        },
+        "approval_ref": {
+          "type": "string"
+        },
+        "metering_unit": {
+          "type": "string",
+          "enum": [
+            "request",
+            "tool_invocation",
+            "runtime_ms",
+            "local_compute_ms",
+            "hosted_mcp_runtime_ms",
+            "token"
+          ]
         }
       }
     }
@@ -553,6 +638,12 @@ export const UsageEventSchema = {
             "estimated_cost_micros": {
               "type": "integer",
               "minimum": 0
+            },
+            "metering_unit": {
+              "$ref": "#/$defs/meteringUnit"
+            },
+            "runtime_capability": {
+              "$ref": "#/$defs/highRiskRuntimeCapability"
             }
           }
         }
@@ -596,6 +687,28 @@ export const UsageEventSchema = {
           "type": "string"
         }
       }
+    },
+    "highRiskRuntimeCapability": {
+      "type": "string",
+      "enum": [
+        "remote.local_tool_execution",
+        "remote.local_llm_exposure",
+        "remote.external_agent_runtime_adapter",
+        "remote.computer_use_execution",
+        "gateway.hosted_mcp_billing",
+        "gateway.sensitive_provider_routing"
+      ]
+    },
+    "meteringUnit": {
+      "type": "string",
+      "enum": [
+        "request",
+        "tool_invocation",
+        "runtime_ms",
+        "local_compute_ms",
+        "hosted_mcp_runtime_ms",
+        "token"
+      ]
     }
   }
 } as const;
