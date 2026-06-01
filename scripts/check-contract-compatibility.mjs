@@ -189,36 +189,90 @@ assert.equal(prototypePaths.get("rework_requested").terminal_state, "rework");
 assert.equal(prototypePaths.get("missing_evidence").terminal_state, "rework");
 assert.equal(prototypePaths.get("denied").terminal_state, "denied");
 
-const eventsByStage = new Map(chainEvents.map((event) => [event.stage, event]));
+const eventPathKey = (stage, workflowPath) => `${stage}:${workflowPath}`;
+const eventsByStageAndPath = new Map(
+  chainEvents.map((event) => [
+    eventPathKey(event.stage, event.payload.workflow_path),
+    event,
+  ]),
+);
 for (const path of prototypePaths.values()) {
   for (const stage of path.required_stages) {
     assert.ok(
-      eventsByStage.has(stage),
-      `${path.path} path must reconstruct ${stage}`,
+      eventsByStageAndPath.has(eventPathKey(stage, path.path)),
+      `${path.path} path must reconstruct ${stage} using its own workflow_path`,
     );
   }
 }
-assert.equal(
-  eventsByStage.get("plan_approval_requested").approval_id,
-  syntheticChain.chain.approval_id,
+
+const donePlanApproval = eventsByStageAndPath.get(
+  eventPathKey("plan_approval_requested", "done_approved"),
 );
-assert.equal(eventsByStage.get("plan_approved").payload.decision, "approved");
+const donePlanApproved = eventsByStageAndPath.get(
+  eventPathKey("plan_approved", "done_approved"),
+);
+const doneEvidenceImport = eventsByStageAndPath.get(
+  eventPathKey("evidence_imported", "done_approved"),
+);
+const doneReviewPacket = eventsByStageAndPath.get(
+  eventPathKey("review_packet_generated", "done_approved"),
+);
+const doneDecision = eventsByStageAndPath.get(
+  eventPathKey("human_decision_done", "done_approved"),
+);
+const reworkEvidenceImport = eventsByStageAndPath.get(
+  eventPathKey("evidence_imported", "rework_requested"),
+);
+const reworkReviewPacket = eventsByStageAndPath.get(
+  eventPathKey("review_packet_generated", "rework_requested"),
+);
+const reworkFinalResult = eventsByStageAndPath.get(
+  eventPathKey("final_result", "rework_requested"),
+);
+const missingEvidence = eventsByStageAndPath.get(
+  eventPathKey("evidence_missing", "missing_evidence"),
+);
+const missingReviewPacket = eventsByStageAndPath.get(
+  eventPathKey("review_packet_generated", "missing_evidence"),
+);
+const missingFinalResult = eventsByStageAndPath.get(
+  eventPathKey("final_result", "missing_evidence"),
+);
+
+assert.equal(donePlanApproval.approval_id, syntheticChain.chain.approval_id);
+assert.equal(donePlanApproved.payload.decision, "approved");
 assert.equal(
-  eventsByStage.get("evidence_imported").payload.evidence_import_id,
+  doneEvidenceImport.payload.evidence_import_id,
   syntheticChain.chain.evidence_import_id,
 );
 assert.equal(
-  eventsByStage.get("review_packet_generated").payload.review_packet_id,
+  doneReviewPacket.payload.review_packet_id,
   syntheticChain.chain.review_packet_id,
 );
-assert.equal(eventsByStage.get("human_decision_done").payload.decision, "done");
+assert.equal(doneDecision.payload.decision, "done");
 assert.equal(
-  eventsByStage.get("human_decision_rework").payload.decision,
+  eventsByStageAndPath.get(
+    eventPathKey("human_decision_rework", "rework_requested"),
+  ).payload.decision,
   "rework",
 );
-assert.equal(
-  eventsByStage.get("evidence_missing").payload.workflow_path,
-  "missing_evidence",
+assert.equal(missingEvidence.payload.decision_hint, "rework");
+assert.equal(reworkFinalResult.payload.status, "rework");
+assert.equal(missingFinalResult.payload.status, "rework");
+assert.notEqual(
+  reworkEvidenceImport.payload.evidence_import_id,
+  doneEvidenceImport.payload.evidence_import_id,
+  "rework evidence import must not reuse done path evidence",
+);
+assert.notEqual(
+  reworkReviewPacket.payload.review_packet_id,
+  doneReviewPacket.payload.review_packet_id,
+  "rework review packet must not reuse done path packet",
+);
+assert.notEqual(
+  missingReviewPacket.payload.review_packet_id,
+  doneReviewPacket.payload.review_packet_id,
+  "missing evidence review packet must not reuse done path packet",
 );
 
 const negativeCases = new Map(
@@ -233,7 +287,7 @@ assert.deepEqual([...negativeCases.keys()].sort(), [
 ]);
 for (const negativeCase of negativeCases.values()) {
   assert.ok(
-    eventsByStage.has(negativeCase.target_stage),
+    chainEvents.some((event) => event.stage === negativeCase.target_stage),
     `${negativeCase.case} must target an existing stage`,
   );
   assert.equal(negativeCase.field, "correlation_id");

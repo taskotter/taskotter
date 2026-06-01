@@ -42,7 +42,8 @@
         "plan_approved",
         "evidence_imported",
         "review_packet_generated",
-        "human_decision_rework"
+        "human_decision_rework",
+        "final_result"
       ]
     },
     {
@@ -52,6 +53,7 @@
         "user_request",
         "plan_approved",
         "evidence_missing",
+        "review_packet_generated",
         "final_result"
       ]
     },
@@ -598,6 +600,273 @@
         "decision": "rework",
         "decision_id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EB",
         "reason_code": "missing_required_evidence"
+      }
+    },
+    {
+      "stage": "user_request",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BA",
+      "type": "controlplane.user_request.received",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.740Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "agent_run",
+        "id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "rework_requested",
+        "intent": "review_rework_request",
+        "input_summary_ref": "summary_fixture_rework_request",
+        "omitted_fields": [
+          "prompt_body",
+          "conversation_body",
+          "attachment_body"
+        ]
+      }
+    },
+    {
+      "stage": "plan_approved",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BB",
+      "type": "review.plan.approved",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.750Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "user",
+        "id": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "approval",
+        "id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "rework_requested",
+        "decision": "approved",
+        "decision_ref": "approval_decision_fixture_rework"
+      }
+    },
+    {
+      "stage": "evidence_imported",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BC",
+      "type": "review.evidence.imported",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.760Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "service",
+        "id": "svc_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "evidence_import",
+        "id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2RW"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "rework_requested",
+        "evidence_import_id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2RW",
+        "evidence_refs": [
+          "artifact_manifest_fixture_rework",
+          "test_result_summary_fixture_rework"
+        ],
+        "import_status": "imported",
+        "omitted_fields": ["artifact_payload", "stdout_body", "stderr_body"]
+      }
+    },
+    {
+      "stage": "review_packet_generated",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BD",
+      "type": "review.packet.generated",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.770Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "service",
+        "id": "svc_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "review_packet",
+        "id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2RW"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "rework_requested",
+        "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2RW",
+        "evidence_import_id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2RW",
+        "packet_ref": "review_packet_summary_fixture_rework",
+        "coverage_summary": {
+          "lint": "passed",
+          "typecheck": "passed",
+          "contract_tests": "passed"
+        }
+      }
+    },
+    {
+      "stage": "final_result",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BE",
+      "type": "run.final_result.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.780Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "agent_run",
+        "id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "rework_requested",
+        "status": "rework",
+        "reason_code": "reviewer_requested_rework",
+        "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2RW",
+        "decision_id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EB"
+      }
+    },
+    {
+      "stage": "user_request",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BF",
+      "type": "controlplane.user_request.received",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.790Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "agent_run",
+        "id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "missing_evidence",
+        "intent": "review_missing_evidence_request",
+        "input_summary_ref": "summary_fixture_missing_evidence_request",
+        "omitted_fields": [
+          "prompt_body",
+          "conversation_body",
+          "attachment_body"
+        ]
+      }
+    },
+    {
+      "stage": "plan_approved",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BG",
+      "type": "review.plan.approved",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.800Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "user",
+        "id": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "approval",
+        "id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "missing_evidence",
+        "decision": "approved",
+        "decision_ref": "approval_decision_fixture_missing_evidence"
+      }
+    },
+    {
+      "stage": "review_packet_generated",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BH",
+      "type": "review.packet.generated",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.810Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "service",
+        "id": "svc_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "review_packet",
+        "id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2ME"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "missing_evidence",
+        "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2ME",
+        "evidence_import_id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2ME",
+        "packet_ref": "review_packet_summary_fixture_missing_evidence",
+        "coverage_summary": {
+          "lint": "passed",
+          "typecheck": "passed",
+          "contract_tests": "blocked_missing_evidence"
+        }
+      }
+    },
+    {
+      "stage": "final_result",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2BJ",
+      "type": "run.final_result.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.820Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "agent_run",
+        "id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "missing_evidence",
+        "status": "rework",
+        "reason_code": "missing_required_evidence",
+        "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2ME",
+        "missing_refs": ["test_result_summary_fixture_001"]
       }
     },
     {
