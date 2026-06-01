@@ -3104,6 +3104,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failed_review_control_patch_does_not_partially_commit_fields()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let app = build_router(AppState::default());
+        let mut create = review_control_create_request();
+        create["request"]["protected_operation"] = json!(true);
+        create["imported_result_refs"] = json!(["import_original"]);
+        create["evidence_refs"] = json!(["evidence_original"]);
+        create["audit"]["audit_event_ref"] = json!("audit_original");
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                create,
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let created: Value = serde_json::from_slice(&body)?;
+        let work_item_id = created["id"]
+            .as_str()
+            .ok_or("work item id should serialize as string")?;
+
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "PATCH",
+                &format!("/v1/review-control/work-items/{work_item_id}"),
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "request_summary": "Summary accidentally included bearer token.",
+                    "protected_operation": false,
+                    "risk_tier": "low",
+                    "autonomy_level": "suggest_only",
+                    "imported_result_refs": ["import_new"],
+                    "evidence_refs": ["evidence_new"],
+                    "audit_event_ref": "audit_access_token_unsafe"
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_eq!(envelope["error"]["code"], "validation_failed");
+        assert_eq!(envelope["error"]["support"]["redacted"], true);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/v1/review-control/work-items/{work_item_id}"))
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let fetched: Value = serde_json::from_slice(&body)?;
+        assert_eq!(fetched["risk_tier"], "high");
+        assert_eq!(fetched["autonomy_level"], "human_approval_required");
+        assert_eq!(fetched["request"]["protected_operation"], true);
+        assert_eq!(
+            fetched["request"]["summary"],
+            "Implement review control contract."
+        );
+        assert_eq!(fetched["imported_result_refs"][0], "import_original");
+        assert_eq!(fetched["evidence_refs"][0], "evidence_original");
+        assert_eq!(fetched["audit"]["audit_event_ref"], "audit_original");
+        assert_eq!(fetched["redaction_summary"]["redacted"], false);
+        assert_eq!(
+            fetched["redaction_summary"]["redacted_fields"]
+                .as_array()
+                .map(Vec::len),
+            Some(0)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn review_packet_returns_not_found_without_imported_evidence()
     -> Result<(), Box<dyn std::error::Error>> {
         let response = build_router(AppState::default())

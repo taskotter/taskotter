@@ -263,6 +263,16 @@ impl ReviewControlWorkItem {
     ) -> Result<(), ReviewControlError> {
         require_schema_version(&update.schema_version)?;
         self.ensure_mutable()?;
+        let mut candidate = self.clone();
+        candidate.apply_update_candidate(update)?;
+        *self = candidate;
+        Ok(())
+    }
+
+    fn apply_update_candidate(
+        &mut self,
+        update: UpdateReviewControlWorkItemRequest,
+    ) -> Result<(), ReviewControlError> {
         let next_risk_tier = update
             .risk_tier
             .clone()
@@ -750,6 +760,49 @@ mod tests {
             Err(ReviewControlError::ApprovalRequiredInvariantViolation)
         );
         assert!(!item.request.protected_operation);
+        Ok(())
+    }
+
+    #[test]
+    fn failed_update_does_not_partially_commit_security_sensitive_fields()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut request = create_request();
+        request.request.protected_operation = true;
+        request.imported_result_refs = vec!["import_original".to_owned()];
+        request.evidence_refs = vec!["evidence_original".to_owned()];
+        request.audit.audit_event_ref = Some("audit_original".to_owned());
+        let mut item = request.into_work_item()?;
+
+        let result = item.apply_update(UpdateReviewControlWorkItemRequest {
+            schema_version: "review_control.work_item.v1".to_owned(),
+            request_summary: Some("Summary accidentally included bearer token.".to_owned()),
+            protected_operation: Some(false),
+            acceptance_criteria: None,
+            risk_tier: Some(RiskTier::Low),
+            autonomy_level: Some(AutonomyLevel::SuggestOnly),
+            imported_result_refs: Some(vec!["import_new".to_owned()]),
+            evidence_refs: Some(vec!["evidence_new".to_owned()]),
+            audit_event_ref: Some("audit_access_token_unsafe".to_owned()),
+        });
+
+        assert_eq!(
+            result,
+            Err(ReviewControlError::UnsafeReference {
+                field: "audit_event_ref"
+            })
+        );
+        assert_eq!(item.risk_tier, RiskTier::High);
+        assert_eq!(item.autonomy_level, AutonomyLevel::HumanApprovalRequired);
+        assert!(item.request.protected_operation);
+        assert_eq!(item.request.summary, "Implement review control contract.");
+        assert_eq!(item.imported_result_refs, vec!["import_original"]);
+        assert_eq!(item.evidence_refs, vec!["evidence_original"]);
+        assert_eq!(
+            item.audit.audit_event_ref,
+            Some("audit_original".to_owned())
+        );
+        assert!(!item.redaction_summary.redacted);
+        assert!(item.redaction_summary.redacted_fields.is_empty());
         Ok(())
     }
 }
