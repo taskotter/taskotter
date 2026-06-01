@@ -265,6 +265,93 @@ test("high-risk runtime fixtures stay deny-by-default and metered by capability"
   assert.equal(audit.policy_decision_id, decision.decision_id);
 });
 
+test("policy composition matrix fixes deny precedence and AND semantics", async () => {
+  const matrix = await readJson(
+    "contracts/fixtures/policy-composition.matrix.json",
+  );
+
+  assert.equal(matrix.schema_version, "policy-composition-fixture@0.1.0");
+  assert.equal(
+    matrix.runner_gateway_decision_contract,
+    "policy-decision@0.1.0",
+  );
+  assert.equal(matrix.semantics, "and");
+  assert.equal(matrix.deny_precedence, true);
+  assert.deepEqual(matrix.default_quota, {
+    max_tokens: 8192,
+    max_cost_micro_usd: 50000,
+    ttl_seconds: 300,
+  });
+
+  const cases = new Map(
+    matrix.cases.map((testCase) => [testCase.name, testCase]),
+  );
+  for (const expectedCase of [
+    "owner-role-allows-issue-read",
+    "explicit-deny-overrides-owner-role",
+    "workflow-agent-delegation-and-role-binding-allow-provider",
+    "service-admin-override-allows-protected-runner-action",
+    "member-protected-provider-action-needs-approval-or-binding",
+    "viewer-role-denies-comment-create",
+  ]) {
+    assert.ok(cases.has(expectedCase), `${expectedCase} must be covered`);
+  }
+
+  const explicitDeny = cases.get("explicit-deny-overrides-owner-role");
+  assert.equal(explicitDeny.role, "owner");
+  assert.equal(explicitDeny.inputs.explicit_deny, true);
+  assert.equal(explicitDeny.inputs.quota_available, true);
+  assert.equal(explicitDeny.expected.effect, "deny");
+  assert.equal(explicitDeny.expected.reason_code, "legacy_policy_denied");
+
+  const approvalRequired = cases.get(
+    "member-protected-provider-action-needs-approval-or-binding",
+  );
+  assert.equal(approvalRequired.inputs.approval_required, true);
+  assert.equal(approvalRequired.expected.high_risk_capability_effect, "deny");
+  assert.equal(
+    approvalRequired.expected.approval_ref,
+    "approval_required_before_paid_runtime",
+  );
+
+  const workflowAgent = cases.get(
+    "workflow-agent-delegation-and-role-binding-allow-provider",
+  );
+  assert.equal(workflowAgent.actor.type, "agent");
+  assert.equal(workflowAgent.inputs.delegated_authority, true);
+  assert.equal(workflowAgent.inputs.role_binding, true);
+  assert.equal(workflowAgent.expected.reason_code, "role_binding_matched");
+
+  const serviceAdmin = cases.get(
+    "service-admin-override-allows-protected-runner-action",
+  );
+  assert.equal(serviceAdmin.actor.type, "service");
+  assert.equal(serviceAdmin.inputs.admin_override, true);
+  assert.equal(serviceAdmin.expected.high_risk_capability_effect, "allow");
+
+  for (const testCase of matrix.cases) {
+    assert.ok(
+      ["user", "agent", "service"].includes(testCase.actor.type),
+      `${testCase.name} must use a runner/gateway-compatible actor type`,
+    );
+    assert.ok(
+      ["allow", "deny"].includes(testCase.expected.effect),
+      `${testCase.name} must use a canonical policy effect`,
+    );
+    assert.ok(
+      testCase.expected.reason_code,
+      `${testCase.name} must pin a reason code`,
+    );
+    if (testCase.expected.effect === "deny") {
+      assert.deepEqual(
+        testCase.expected.tool_scopes,
+        [],
+        `${testCase.name} must not grant tool scopes when denied`,
+      );
+    }
+  }
+});
+
 test("usage event schema captures settlement and safe-reference contract", async () => {
   const schema = await readJson("contracts/schemas/usage-event.schema.json");
   const runnerUsage = await readJson(
