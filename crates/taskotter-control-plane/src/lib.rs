@@ -4,4 +4,5 @@ pub mod authorization;
 pub mod domain;
 pub mod operations;
 pub mod policy;
+pub mod protected_operations;
 pub mod usage;
