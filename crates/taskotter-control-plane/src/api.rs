@@ -44,6 +44,11 @@ use crate::{
         BaselinePolicyEvaluator, PolicyActorRef, PolicyDecision, PolicyDecisionRequest,
         PolicyEvaluator,
     },
+    protected_operations::{
+        ApprovalDecision, ApprovalDenial, ApprovalGateDecision, ApprovalGateRequest,
+        ApprovalGateStatus, ApprovalGateTrustBoundary, ApprovalRecord, ApprovalScope,
+        ApproverEligibility, ProtectedOperationAction, evaluate_approval_gate,
+    },
     review_control::{
         AcceptanceCriterion, ApproveReviewControlPlanRequest, AuditCorrelation, AutonomyLevel,
         CompleteReviewControlRequest, CreateReviewControlWorkItemRequest, PlanApproval,
@@ -195,6 +200,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/comments", post(create_comment))
         .route("/v1/registry", post(create_registry_entry))
         .route("/v1/policy/decisions", post(evaluate_policy))
+        .route(
+            "/v1/protected-operations/approval-gate/fixture-evaluation",
+            post(evaluate_protected_operation_approval_gate),
+        )
         .route("/v1/usage/evaluate", post(evaluate_usage))
         .route("/v1/usage/events", post(create_usage_event))
         .route("/v1/remote/usage-reports", post(create_remote_usage_report))
@@ -431,6 +440,18 @@ async fn evaluate_policy(
     let decision = state.policy_evaluator.evaluate(&request, &context);
     store.policy_decisions.push(decision.clone());
     Ok(Json(decision))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/protected-operations/approval-gate/fixture-evaluation",
+    request_body = ApprovalGateRequest,
+    responses((status = 200, body = ApprovalGateDecision), (status = 400, body = ErrorResponse))
+)]
+async fn evaluate_protected_operation_approval_gate(
+    SafeJson(request): SafeJson<ApprovalGateRequest>,
+) -> Json<ApprovalGateDecision> {
+    Json(evaluate_approval_gate(request))
 }
 
 #[utoipa::path(
@@ -1056,6 +1077,7 @@ impl IntoResponse for ApiError {
         create_comment,
         create_registry_entry,
         evaluate_policy,
+        evaluate_protected_operation_approval_gate,
         evaluate_usage,
         create_usage_event,
         create_remote_usage_report,
@@ -1122,9 +1144,19 @@ impl IntoResponse for ApiError {
         OperationsSourceSurface,
         PlanApproval,
         PlanApprovalState,
+        ApprovalDecision,
+        ApprovalDenial,
+        ApprovalGateDecision,
+        ApprovalGateRequest,
+        ApprovalGateStatus,
+        ApprovalGateTrustBoundary,
+        ApprovalRecord,
+        ApprovalScope,
+        ApproverEligibility,
         PolicyDecision,
         PolicyDecisionRequest,
         PolicyActorRef,
+        ProtectedOperationAction,
         RedactionClassification,
         RedactionSummary,
         RegistryEntry,
@@ -1326,6 +1358,10 @@ mod tests {
         assert!(document["paths"]["/v1/authorization/memberships"].is_null());
         assert!(document["paths"]["/v1/authorization/role-bindings"].is_null());
         assert!(document["paths"]["/v1/registry"].is_object());
+        assert!(
+            document["paths"]["/v1/protected-operations/approval-gate/fixture-evaluation"]
+                .is_object()
+        );
         assert!(document["paths"]["/v1/usage/evaluate"].is_object());
         assert!(document["paths"]["/v1/usage/events"].is_object());
         assert!(document["paths"]["/v1/remote/usage-reports"].is_object());
@@ -1351,6 +1387,16 @@ mod tests {
         );
         assert!(
             document["components"]["schemas"]["IntakeRequest"]["properties"]["mode"].is_object()
+        );
+        assert!(
+            document["components"]["schemas"]["ApprovalGateDecision"]["properties"]
+                ["side_effect_permitted"]
+                .is_object()
+        );
+        assert!(
+            document["components"]["schemas"]["ApprovalGateDecision"]["properties"]
+                ["trust_boundary"]
+                .is_object()
         );
         assert!(
             document["components"]["schemas"]["UsageAuditEventV1"]["properties"]["status"]
@@ -2306,6 +2352,80 @@ mod tests {
             decision["constraints"]["high_risk_capabilities"][0]["effect"],
             "deny"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn approval_gate_api_contract_stops_pending_protected_operation_before_side_effect()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let request = json!({
+            "actor": { "type": "user", "id": "user_requester" },
+            "delegated_actor": { "type": "agent", "id": "agent_executor" },
+            "action": "deployment",
+            "resource": { "type": "deployment", "id": "deploy_prod" },
+            "risk_summary": "Deploys a production service.",
+            "evaluated_at": "2026-06-01T00:00:00Z",
+            "approval_record": {
+                "id": "approval_01J9Z4P4BS0M9P2QJ6T8Z6W2EE",
+                "actor": { "type": "user", "id": "user_requester" },
+                "delegated_actor": { "type": "agent", "id": "agent_executor" },
+                "action": "deployment",
+                "resource": { "type": "deployment", "id": "deploy_prod" },
+                "risk_summary": "Deploys a production service.",
+                "expires_at": "2026-06-01T00:05:00Z",
+                "approver": { "type": "user", "id": "user_owner" },
+                "approver_eligibility": "eligible",
+                "decision": "pending"
+            }
+        });
+
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/protected-operations/approval-gate/fixture-evaluation")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request.to_string()))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(decision["allowed"], false);
+        assert_eq!(decision["status"], "waiting_approval");
+        assert_eq!(decision["reason_code"], "approval_pending");
+        assert_eq!(decision["side_effect_permitted"], false);
+        assert_eq!(decision["trust_boundary"]["fixture_only"], true);
+        assert_eq!(
+            decision["trust_boundary"]["client_supplied_record_trusted_for_execution"],
+            false
+        );
+        assert_eq!(
+            decision["trust_boundary"]["consumption_policy"],
+            "fixture_smoke_only_do_not_use_for_executor_enforcement"
+        );
+        assert_eq!(decision["actor"]["id"], "user_requester");
+        assert_eq!(decision["delegated_actor"]["id"], "agent_executor");
+        assert_eq!(decision["approval_record"]["action"], "deployment");
+        assert_eq!(
+            decision["approval_record"]["resource"],
+            json!({ "type": "deployment", "id": "deploy_prod" })
+        );
+        assert_eq!(
+            decision["approval_record"]["risk_summary"],
+            "Deploys a production service."
+        );
+        assert_eq!(
+            decision["approval_record"]["expires_at"],
+            "2026-06-01T00:05:00Z"
+        );
+        assert_eq!(
+            decision["approval_record"]["approver_eligibility"],
+            "eligible"
+        );
+        assert_eq!(decision["approval_record"]["decision"], "pending");
         Ok(())
     }
 
