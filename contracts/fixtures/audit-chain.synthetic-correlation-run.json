@@ -1,0 +1,220 @@
+{
+  "schema_version": "audit-chain-fixture@0.1.0",
+  "description": "Synthetic end-to-end correlation chain using generated fake references only.",
+  "chain": {
+    "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "actor": {
+      "type": "agent",
+      "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+    },
+    "run_id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "job_id": "job_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "runner_id": "runr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "gateway_request_id": "gwreq_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "mcp_server_id": "mcp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+  },
+  "cross_repo_evidence": {
+    "remote": {
+      "repo": "taskotter/taskotter-remote",
+      "protocol_version": "remote.v1alpha1",
+      "message_type": "job.dispatch",
+      "fixture_path": "fixtures/control-plane/job-dispatch-echo.json"
+    },
+    "gateway": {
+      "repo": "taskotter/taskotter-gateway",
+      "protocol_version": "gateway.v0.1",
+      "request_fixtures": [
+        "fixtures/gateway/v0_1/scoped_model_request.json",
+        "fixtures/gateway/v0_1/scoped_mcp_session_request.json"
+      ],
+      "event_fixtures": [
+        "fixtures/gateway/v0_1/hosted_mcp_denied_usage_event.json",
+        "fixtures/gateway/v0_1/hosted_mcp_denied_audit_event.json"
+      ]
+    }
+  },
+  "events": [
+    {
+      "stage": "user_request",
+      "surface": "control_plane",
+      "type": "control_plane.user_request.received",
+      "event_id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AA",
+      "occurred_at": "2026-01-01T00:00:00.000Z",
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "summary": {
+        "intent": "run_synthetic_gateway_hosted_mcp_check",
+        "input_summary_ref": "summary_fixture_user_request",
+        "omitted_fields": [
+          "prompt_body",
+          "conversation_body",
+          "attachment_body"
+        ]
+      }
+    },
+    {
+      "stage": "policy_decision",
+      "surface": "control_plane",
+      "type": "policy.decision.recorded",
+      "event_id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AB",
+      "occurred_at": "2026-01-01T00:00:00.100Z",
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "summary": {
+        "effect": "deny",
+        "reason_code": "protected_capability_disabled",
+        "capability": "gateway.hosted_mcp_billing",
+        "feature_flag": "gateway.hosted_mcp_billing.enabled"
+      }
+    },
+    {
+      "stage": "approval_requested",
+      "surface": "control_plane",
+      "type": "approval.requested",
+      "event_id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AC",
+      "occurred_at": "2026-01-01T00:00:00.150Z",
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "summary": {
+        "approval_gate": "gateway_hosted_mcp_runtime",
+        "status": "required_before_dispatch"
+      }
+    },
+    {
+      "stage": "runner_dispatch",
+      "surface": "runner",
+      "type": "job.dispatch",
+      "event_id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AD",
+      "occurred_at": "2026-01-01T00:00:00.200Z",
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "protocol_version": "remote.v1alpha1",
+      "redaction": "internal_reference_only",
+      "summary": {
+        "runner_id": "runr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "job_id": "job_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "adapter": "echo",
+        "workspace_root_strategy": "temporary_isolated",
+        "scoped_credential_ref": "secret_ref_runner_fixture"
+      }
+    },
+    {
+      "stage": "gateway_request",
+      "surface": "gateway",
+      "type": "gateway.model.request",
+      "event_id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AE",
+      "occurred_at": "2026-01-01T00:00:00.300Z",
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "protocol_version": "gateway.v0.1",
+      "redaction": "internal_reference_only",
+      "summary": {
+        "gateway_request_id": "gwreq_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "provider": "fake-hosted",
+        "model": "fake-deterministic-v1",
+        "credential_scope": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP/provider/fake-hosted/model/fake-deterministic-v1"
+      }
+    },
+    {
+      "stage": "mcp_call_denied",
+      "surface": "gateway",
+      "type": "gateway.mcp.session.open.denied",
+      "event_id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AF",
+      "occurred_at": "2026-01-01T00:00:00.400Z",
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "protocol_version": "gateway.v0.1",
+      "redaction": "internal_reference_only",
+      "summary": {
+        "mcp_server_id": "mcp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "hosting_mode": "gateway_hosted",
+        "denial_reason": "protected_capability_disabled",
+        "allowed_tool_refs": ["tool_fixture_read"],
+        "credential_scope": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP/mcp/mcp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      }
+    },
+    {
+      "stage": "usage_event",
+      "surface": "gateway",
+      "type": "usage.gateway_request.recorded",
+      "event_id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AG",
+      "occurred_at": "2026-01-01T00:00:00.500Z",
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "summary": {
+        "idempotency_key": "usage_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "status": "denied",
+        "metering_unit": "hosted_mcp_runtime_ms",
+        "duration_ms": 0,
+        "estimated_cost_micros": 0
+      }
+    },
+    {
+      "stage": "artifact_log_event",
+      "surface": "runner",
+      "type": "artifact.log.recorded",
+      "event_id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AH",
+      "occurred_at": "2026-01-01T00:00:00.600Z",
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "summary": {
+        "artifact_manifest_ref": "artifact_manifest_fixture_001",
+        "log_excerpt_ref": "log_excerpt_fixture_redacted_001",
+        "byte_count": 128,
+        "omitted_fields": ["stdout_body", "stderr_body", "artifact_payload"]
+      }
+    },
+    {
+      "stage": "final_result",
+      "surface": "control_plane",
+      "type": "run.final_result.recorded",
+      "event_id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AJ",
+      "occurred_at": "2026-01-01T00:00:00.700Z",
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "summary": {
+        "status": "denied",
+        "reason_code": "protected_capability_disabled",
+        "reconstructable_from": [
+          "correlation_id",
+          "request_id",
+          "policy_decision_id",
+          "approval_id",
+          "event_id"
+        ]
+      }
+    }
+  ],
+  "residual_risk": {
+    "export_delete_retention": "Not covered by this fixture. Durable audit export, legal hold, delete semantics, and retention windows require a follow-up policy and storage test plan before production enablement.",
+    "security_review_trigger": true,
+    "security_review_reason": "Fixture exercises approval, audit, usage, runner dispatch, gateway, hosted MCP, and redacted evidence boundaries."
+  }
+}

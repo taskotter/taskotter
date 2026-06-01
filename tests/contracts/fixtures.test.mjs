@@ -483,6 +483,95 @@ test("runtime events use the canonical event envelope and required correlation c
   }
 });
 
+test("synthetic audit chain reconstructs cross-surface correlation without sensitive payloads", async () => {
+  const fixture = await readJson(
+    "contracts/fixtures/audit-chain.synthetic-correlation-run.json",
+  );
+  const usageSchema = await readJson(
+    "contracts/schemas/usage-event.schema.json",
+  );
+  const auditSchema = await readJson(
+    "contracts/schemas/audit-event.schema.json",
+  );
+  const deniedUsage = await readJson(
+    "contracts/fixtures/usage-event.high-risk-runtime-denied.json",
+  );
+  const deniedAudit = await readJson(
+    "contracts/fixtures/audit-event.high-risk-runtime-denied.json",
+  );
+
+  validate(usageSchema, deniedUsage);
+  validate(auditSchema, deniedAudit);
+
+  const expectedStages = new Set([
+    "user_request",
+    "policy_decision",
+    "approval_requested",
+    "runner_dispatch",
+    "gateway_request",
+    "mcp_call_denied",
+    "usage_event",
+    "artifact_log_event",
+    "final_result",
+  ]);
+  const actualStages = new Set(fixture.events.map((event) => event.stage));
+  for (const stage of expectedStages) {
+    assert.ok(actualStages.has(stage), `synthetic chain must include ${stage}`);
+  }
+
+  for (const event of fixture.events) {
+    assert.equal(event.correlation_id, fixture.chain.correlation_id);
+    assert.equal(event.request_id, fixture.chain.request_id);
+    assert.equal(event.working_group_id, fixture.chain.working_group_id);
+    assert.match(event.event_id, /^evt_/);
+    assert.ok(
+      ["internal_reference_only", "redacted_summary"].includes(event.redaction),
+      `${event.stage} must not expose public or raw evidence`,
+    );
+  }
+
+  const linkedEvents = fixture.events.filter((event) =>
+    Object.hasOwn(event, "policy_decision_id"),
+  );
+  assert.ok(linkedEvents.length >= 6);
+  for (const event of linkedEvents) {
+    assert.equal(event.policy_decision_id, fixture.chain.policy_decision_id);
+  }
+
+  assert.equal(deniedUsage.correlation_id, fixture.chain.correlation_id);
+  assert.equal(deniedUsage.request_id, fixture.chain.request_id);
+  assert.equal(deniedAudit.correlation_id, fixture.chain.correlation_id);
+  assert.equal(
+    deniedAudit.policy_decision_id,
+    fixture.chain.policy_decision_id,
+  );
+  assert.equal(
+    fixture.residual_risk.security_review_trigger,
+    true,
+    "security review must be triggered for audit/approval/gateway boundaries",
+  );
+
+  const serialized = JSON.stringify(fixture);
+  for (const prohibited of [
+    "api_key",
+    "access_token",
+    "refresh_token",
+    "private_key",
+    "client_secret",
+    "bearer ",
+    "password",
+    "raw_prompt",
+    "raw_log",
+    "artifact_body",
+    "-----BEGIN",
+  ]) {
+    assert.ok(
+      !serialized.toLowerCase().includes(prohibited),
+      `synthetic fixture must not include ${prohibited}`,
+    );
+  }
+});
+
 test("policy decisions require provenance and audit correlation fields", async () => {
   const schema = await readJson(
     "contracts/schemas/policy-decision.schema.json",

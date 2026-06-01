@@ -39,3 +39,10 @@ for the currently supported first-party runner and gateway protocol versions.
 fixtures, and the repo-local runner/gateway compatibility fixtures all reference
 declared versions and preserve the policy, request, and credential boundaries
 expected by `taskotter-remote` and `taskotter-gateway`.
+
+`contracts/fixtures/audit-chain.synthetic-correlation-run.json` is a synthetic
+correlation fixture for reconstructing one generated user request through
+control-plane policy and approval evidence, runner dispatch, gateway request,
+hosted MCP denial, usage, artifact/log summary, and final result events. It uses
+only fake opaque references and redacted summaries; export, delete, legal hold,
+and retention behavior remain out of scope for this fixture.
