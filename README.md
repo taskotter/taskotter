@@ -75,6 +75,14 @@ gateway usage/audit events, and remote usage reports. See
 `docs/contracts/mvp-contracts.md` for the cross-repository contract boundary and
 publication path.
 
+Architecture notes:
+
+- `docs/module-boundaries.md` defines frontend and generated-contract dependency
+  boundaries.
+- `docs/i18n-architecture.md` defines the repository-local internationalization
+  architecture, translation resource convention, locale precedence, API message
+  policy, and localization QA gates.
+
 ## License
 
 This project is licensed under the PolyForm Strict License 1.0.0.
