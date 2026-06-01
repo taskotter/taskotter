@@ -22,8 +22,10 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import type {
   ConsoleData,
+  DisplayText,
   IssueStatus,
   IssueSummary,
+  LocalizedText,
   RunStatus,
   Severity,
   SetupStep,
@@ -126,6 +128,10 @@ function policyLabel(i18n: I18n, policyState: IssueSummary["policyState"]) {
   return i18n.t(`commonErrors.policy.${policyState}` as TranslationKey);
 }
 
+function renderText(i18n: I18n, value: DisplayText | LocalizedText) {
+  return "text" in value ? value.text : i18n.t(value.key, value.values);
+}
+
 function AppShell({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
   const groupedIssues = useMemo(
     () =>
@@ -134,13 +140,19 @@ function AppShell({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
           groups[issue.group].push(issue);
           return groups;
         },
-        { Assigned: [], "Needs review": [], Blocked: [] },
+        { assigned: [], needs_review: [], blocked: [] },
       ),
     [data.issues],
   );
   const memberLabel = i18n.plural(
     "webShell.workspace.member",
     data.workingGroup.memberCount,
+  );
+  const roleLabel = i18n.t(
+    `webShell.workspace.role.${data.workingGroup.role}` as TranslationKey,
+  );
+  const runnerStateLabel = i18n.t(
+    `webShell.runner.${data.workingGroup.runnerState}` as TranslationKey,
   );
 
   return (
@@ -158,7 +170,7 @@ function AppShell({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
         <button
           aria-label={i18n.t("webShell.workspace.switcherLabel", {
             name: data.workingGroup.name,
-            role: data.workingGroup.role,
+            role: roleLabel,
             memberCount: data.workingGroup.memberCount,
             memberLabel,
           })}
@@ -168,8 +180,7 @@ function AppShell({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
           <span>
             <strong>{data.workingGroup.name}</strong>
             <small>
-              {data.workingGroup.role} · {data.workingGroup.memberCount}{" "}
-              {memberLabel}
+              {roleLabel} · {data.workingGroup.memberCount} {memberLabel}
             </small>
           </span>
           <ChevronDown size={16} aria-hidden="true" />
@@ -199,7 +210,7 @@ function AppShell({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
               data.workingGroup.runnerState === "online" ? "success" : "warning"
             }
             label={i18n.t("webShell.runner.state", {
-              state: data.workingGroup.runnerState,
+              state: runnerStateLabel,
             })}
           />
           <p>{data.workingGroup.plan}</p>
@@ -234,7 +245,7 @@ function AppShell({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
           </div>
           <ol className="setup-steps">
             {data.setupSteps.map((step) => (
-              <SetupStepItem key={step.id} step={step} />
+              <SetupStepItem i18n={i18n} key={step.id} step={step} />
             ))}
           </ol>
         </section>
@@ -292,7 +303,7 @@ function AppShell({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
   );
 }
 
-function SetupStepItem({ step }: { step: SetupStep }) {
+function SetupStepItem({ i18n, step }: { i18n: I18n; step: SetupStep }) {
   const Icon =
     step.state === "complete"
       ? CheckCircle2
@@ -306,8 +317,8 @@ function SetupStepItem({ step }: { step: SetupStep }) {
     <li className={`setup-step setup-${step.state}`}>
       <Icon size={17} aria-hidden="true" />
       <span>
-        <strong>{step.title}</strong>
-        <small>{step.detail}</small>
+        <strong>{renderText(i18n, step.title)}</strong>
+        <small>{renderText(i18n, step.detail)}</small>
       </span>
     </li>
   );
@@ -374,11 +385,13 @@ function IssueDetail({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
         <dl className="detail-grid">
           <div>
             <dt>{i18n.t("issues.detail.parent")}</dt>
-            <dd>{issue.parent}</dd>
+            <dd>{issue.parent ?? i18n.t("issues.empty.parent")}</dd>
           </div>
           <div>
             <dt>{i18n.t("issues.detail.priority")}</dt>
-            <dd>{issue.priority}</dd>
+            <dd>
+              {i18n.t(`issues.priority.${issue.priority}` as TranslationKey)}
+            </dd>
           </div>
           <div>
             <dt>{i18n.t("issues.detail.assignee")}</dt>
@@ -386,7 +399,11 @@ function IssueDetail({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
           </div>
           <div>
             <dt>{i18n.t("issues.detail.children")}</dt>
-            <dd>{issue.children.join(", ")}</dd>
+            <dd>
+              {issue.children.length > 0
+                ? issue.children.join(", ")
+                : i18n.t("issues.empty.children")}
+            </dd>
           </div>
         </dl>
       </section>
@@ -414,10 +431,11 @@ function IssueDetail({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
                 <span className="run-marker" aria-hidden="true" />
               )}
               <div>
-                <strong>{step.label}</strong>
+                <strong>{renderText(i18n, step.label)}</strong>
                 <p>
-                  {i18n.t(statusLabelKey[step.status])} · {step.timestamp} ·{" "}
-                  {step.detail}
+                  {i18n.t(statusLabelKey[step.status])} ·{" "}
+                  {renderText(i18n, step.timestamp)} ·{" "}
+                  {renderText(i18n, step.detail)}
                 </p>
               </div>
             </li>
@@ -432,7 +450,11 @@ function IssueDetail({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
             <article className="comment" key={comment.id}>
               <header>
                 <strong>{comment.author}</strong>
-                <span>{comment.role}</span>
+                <span>
+                  {i18n.t(
+                    `issues.comment.role.${comment.role}` as TranslationKey,
+                  )}
+                </span>
                 <time>{comment.createdAt}</time>
               </header>
               <p>{comment.body}</p>
@@ -440,7 +462,11 @@ function IssueDetail({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
                 <article className="comment reply" key={reply.id}>
                   <header>
                     <strong>{reply.author}</strong>
-                    <span>{reply.role}</span>
+                    <span>
+                      {i18n.t(
+                        `issues.comment.role.${reply.role}` as TranslationKey,
+                      )}
+                    </span>
                     <time>{reply.createdAt}</time>
                   </header>
                   <p>{reply.body}</p>

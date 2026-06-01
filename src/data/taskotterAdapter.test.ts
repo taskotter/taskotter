@@ -185,12 +185,12 @@ describe("generated TaskOtter adapter mapping", () => {
       commentCount: 1,
       runStatus: "running",
       policyState: "policy_denied",
-      group: "Assigned",
+      group: "assigned",
     });
     expect(data.issues[1]).toMatchObject({
       status: "in_review",
       runStatus: "waiting_approval",
-      group: "Needs review",
+      group: "needs_review",
     });
     expect(data.selectedIssue).toMatchObject({
       description: "Render the issue workspace and focus panel.",
@@ -211,7 +211,7 @@ describe("generated TaskOtter adapter mapping", () => {
       data.setupSteps.find((step) => step.id === "provider"),
     ).toMatchObject({
       state: "error",
-      detail: "Gateway provider",
+      detail: { text: "Gateway provider" },
     });
     expect(data.runSteps.map((step) => step.id)).toEqual([
       "issue-state",
@@ -224,7 +224,18 @@ describe("generated TaskOtter adapter mapping", () => {
       data.runSteps.find((step) => step.id === "usage-state"),
     ).toMatchObject({
       status: "completed",
-      detail: "840ms, 1 tools",
+      detail: {
+        key: "issues.run.usageDetail",
+        values: {
+          durationMs: "840",
+          toolCount: "1",
+        },
+      },
+    });
+    expect(
+      data.runSteps.find((step) => step.id === "policy-state"),
+    ).toMatchObject({
+      label: { key: "issues.run.policyDecision" },
     });
   });
 

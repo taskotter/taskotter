@@ -69,4 +69,15 @@ describe("i18n resource smoke fixtures", () => {
       /Jun 01, 12:30 PM/,
     );
   });
+
+  it("formats numbers with the locale preference separate from content locale", () => {
+    const i18n = createI18n(
+      resolveLocalePreferences({
+        userLanguage: "en-XA",
+        formattingLocale: "de-DE",
+      }),
+    );
+
+    expect(i18n.formatNumber(1200)).toBe("1.200");
+  });
 });

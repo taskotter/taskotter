@@ -21,4 +21,7 @@ export const commonErrors: TranslationResource = {
   "policy.policy_denied": "Policy denied",
   "policy.cost_limited": "Cost limited",
   "policy.runner_offline": "Runner offline",
+  "resourceStatus.active": "active",
+  "resourceStatus.disabled": "disabled",
+  "resourceStatus.archived": "archived",
 };

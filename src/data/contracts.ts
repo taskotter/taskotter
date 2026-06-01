@@ -17,6 +17,13 @@ export type RunStatus =
 
 export type Severity = "neutral" | "success" | "warning" | "danger" | "info";
 
+export type LocalizedText = {
+  key: import("../i18n/types").TranslationKey;
+  values?: import("../i18n/types").TranslationValues;
+};
+
+export type DisplayText = LocalizedText | { text: string };
+
 export interface WorkingGroup {
   id: string;
   name: string;
@@ -40,7 +47,7 @@ export interface IssueSummary {
   commentCount: number;
   runStatus: RunStatus;
   policyState: "allowed" | "policy_denied" | "cost_limited" | "runner_offline";
-  group: "Assigned" | "Needs review" | "Blocked";
+  group: "assigned" | "needs_review" | "blocked";
 }
 
 export interface Comment {
@@ -62,18 +69,18 @@ export interface IssueDetail extends IssueSummary {
 
 export interface RunStep {
   id: string;
-  label: string;
+  label: DisplayText;
   status: RunStatus;
-  timestamp: string;
-  detail: string;
+  timestamp: DisplayText;
+  detail: DisplayText;
   severity: Severity;
 }
 
 export interface SetupStep {
   id: string;
-  title: string;
+  title: LocalizedText;
   state: "complete" | "active" | "locked" | "error";
-  detail: string;
+  detail: DisplayText;
 }
 
 export interface ConsoleData {
