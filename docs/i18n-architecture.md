@@ -222,12 +222,20 @@ Server, notification, and email behavior:
 
 - Server-generated user-facing copy must use the same locale precedence as the
   product UI.
+- Server-generated notification and email rendering uses the
+  `serverMessageTemplates` catalog plus `notifications.*` and `emails.*`
+  resources. The renderer resolves locale in the order user preference, Working
+  Group default, browser suggestion, then the product fallback locale.
 - Audit and compliance records should store stable event codes and raw facts,
   then localize display labels at presentation time.
 - Notification and email templates must define subject, title, body, action
   labels, fallback text, and accessibility text through translation resources.
+- User-authored issue/comment/prompt/artifact text may be passed only through
+  declared interpolation variables and is not translated or used as a lookup
+  key.
 - Secrets, raw provider errors, private logs, credentials, and customer-sensitive
-  payloads must never be inserted into localized strings.
+  payloads must never be inserted into localized strings. Template variables
+  with sensitive names must be listed as redacted variables before rendering.
 
 ## Hard-Coded String Guardrails
 

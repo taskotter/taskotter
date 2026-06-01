@@ -546,3 +546,68 @@ test("error details are restricted to a safe allowlist", async () => {
     /Do not include request bodies, credentials/,
   );
 });
+
+test("server message template contract defines locale-aware resource boundaries", async () => {
+  const contract = await readJson(
+    "contracts/fixtures/server-message-template-contract.json",
+  );
+  const requiredParts = ["subject", "title", "body", "action", "accessibility"];
+  const sensitiveVariablePattern =
+    /(secret|token|credential|password|private|raw|prompt|log|stack|trace)/i;
+
+  assert.deepEqual(contract.locale_precedence, [
+    "user",
+    "working-group",
+    "browser",
+    "fallback",
+  ]);
+  assert.equal(contract.fallback_locale, "en");
+  assert.deepEqual(contract.template_parts, requiredParts);
+  assert.deepEqual(contract.namespaces.sort(), ["emails", "notifications"]);
+
+  const keys = contract.templates.map((template) => template.key).sort();
+  assert.deepEqual(keys, [
+    "email.approval.requested",
+    "email.failure.summary",
+    "notification.assignment.created",
+    "notification.run.failed_summary",
+  ]);
+
+  for (const template of contract.templates) {
+    assert.ok(
+      contract.namespaces.includes(template.namespace),
+      `${template.key} namespace must be supported`,
+    );
+    assert.match(
+      template.resource_prefix,
+      new RegExp(`^${template.namespace}\\.`),
+      `${template.key} resource prefix must stay in its namespace`,
+    );
+    assert.ok(
+      ["in_app_notification", "email"].includes(template.channel),
+      `${template.key} channel must be explicit`,
+    );
+
+    for (const variable of template.user_authored_variables) {
+      assert.ok(
+        template.variables.includes(variable),
+        `${template.key} user-authored variable must be declared`,
+      );
+    }
+
+    for (const variable of template.redacted_variables) {
+      assert.ok(
+        template.variables.includes(variable),
+        `${template.key} redacted variable must be declared`,
+      );
+    }
+
+    for (const variable of template.variables) {
+      if (!sensitiveVariablePattern.test(variable)) continue;
+      assert.ok(
+        template.redacted_variables.includes(variable),
+        `${template.key}.${variable} must be redacted`,
+      );
+    }
+  }
+});

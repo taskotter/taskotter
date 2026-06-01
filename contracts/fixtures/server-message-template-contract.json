@@ -1,0 +1,55 @@
+{
+  "contract_version": "2026-06-01",
+  "locale_precedence": ["user", "working-group", "browser", "fallback"],
+  "fallback_locale": "en",
+  "template_parts": ["subject", "title", "body", "action", "accessibility"],
+  "namespaces": ["notifications", "emails"],
+  "templates": [
+    {
+      "key": "notification.assignment.created",
+      "channel": "in_app_notification",
+      "event_code": "notification.assignment.created",
+      "namespace": "notifications",
+      "resource_prefix": "notifications.assignment.created",
+      "variables": ["issueKey", "assigneeName", "workingGroupName"],
+      "user_authored_variables": [],
+      "redacted_variables": []
+    },
+    {
+      "key": "notification.run.failed_summary",
+      "channel": "in_app_notification",
+      "event_code": "run.failed_summary",
+      "namespace": "notifications",
+      "resource_prefix": "notifications.run.failed_summary",
+      "variables": ["runId", "runName", "diagnosticSummary"],
+      "user_authored_variables": [],
+      "redacted_variables": ["diagnosticSummary"]
+    },
+    {
+      "key": "email.approval.requested",
+      "channel": "email",
+      "event_code": "workflow.approval.requested",
+      "namespace": "emails",
+      "resource_prefix": "emails.approval.requested",
+      "variables": [
+        "approvalId",
+        "issueKey",
+        "requesterName",
+        "workingGroupName",
+        "userContext"
+      ],
+      "user_authored_variables": ["userContext"],
+      "redacted_variables": []
+    },
+    {
+      "key": "email.failure.summary",
+      "channel": "email",
+      "event_code": "run.failure.summary",
+      "namespace": "emails",
+      "resource_prefix": "emails.failure.summary",
+      "variables": ["issueKey", "safeStatusSummary", "diagnosticSummary"],
+      "user_authored_variables": [],
+      "redacted_variables": ["diagnosticSummary"]
+    }
+  ]
+}
