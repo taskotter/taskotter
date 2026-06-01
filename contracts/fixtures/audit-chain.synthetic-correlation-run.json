@@ -15,8 +15,76 @@
     "gateway_request_id": "gwreq_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
     "mcp_server_id": "mcp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
     "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
-    "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+    "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "evidence_import_id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+    "done_decision_id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EA",
+    "rework_decision_id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EB"
   },
+  "prototype_paths": [
+    {
+      "path": "done_approved",
+      "terminal_state": "done",
+      "required_stages": [
+        "user_request",
+        "plan_approval_requested",
+        "plan_approved",
+        "evidence_imported",
+        "review_packet_generated",
+        "human_decision_done"
+      ]
+    },
+    {
+      "path": "rework_requested",
+      "terminal_state": "rework",
+      "required_stages": [
+        "user_request",
+        "plan_approved",
+        "evidence_imported",
+        "review_packet_generated",
+        "human_decision_rework"
+      ]
+    },
+    {
+      "path": "missing_evidence",
+      "terminal_state": "rework",
+      "required_stages": [
+        "user_request",
+        "plan_approved",
+        "evidence_missing",
+        "final_result"
+      ]
+    },
+    {
+      "path": "denied",
+      "terminal_state": "denied",
+      "required_stages": [
+        "policy_decision",
+        "approval_requested",
+        "mcp_call_denied",
+        "usage_event",
+        "audit_event",
+        "final_result"
+      ]
+    }
+  ],
+  "negative_cases": [
+    {
+      "case": "missing_correlation_id",
+      "target_stage": "review_packet_generated",
+      "operation": "remove_field",
+      "field": "correlation_id",
+      "expected_error": "correlation_id"
+    },
+    {
+      "case": "malformed_correlation_id",
+      "target_stage": "human_decision_done",
+      "operation": "set_field",
+      "field": "correlation_id",
+      "value": "corr_malformed",
+      "expected_error": "correlation_id"
+    }
+  ],
   "cross_repo_evidence": {
     "remote": {
       "repo": "taskotter/taskotter-remote",
@@ -74,6 +142,7 @@
       "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
       "redaction": "redacted_summary",
       "payload": {
+        "workflow_path": "done_approved",
         "intent": "run_synthetic_gateway_hosted_mcp_check",
         "input_summary_ref": "summary_fixture_user_request",
         "omitted_fields": [
@@ -105,10 +174,66 @@
       "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
       "redaction": "internal_reference_only",
       "payload": {
+        "workflow_path": "denied",
         "effect": "deny",
         "reason_code": "protected_capability_disabled",
         "capability": "gateway.hosted_mcp_billing",
         "feature_flag": "gateway.hosted_mcp_billing.enabled"
+      }
+    },
+    {
+      "stage": "plan_approval_requested",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AK",
+      "type": "review.plan_approval.requested",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.110Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "approval",
+        "id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "done_approved",
+        "plan_ref": "plan_summary_fixture_001",
+        "approval_scope": "prototype_review_control",
+        "omitted_fields": ["plan_detail_body", "conversation_detail_body"]
+      }
+    },
+    {
+      "stage": "plan_approved",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AR",
+      "type": "review.plan.approved",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.120Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "user",
+        "id": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "approval",
+        "id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "internal_reference_only",
+      "payload": {
+        "workflow_path": "done_approved",
+        "decision": "approved",
+        "decision_ref": "approval_decision_fixture_001"
       }
     },
     {
@@ -134,6 +259,7 @@
       "approval_id": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
       "redaction": "internal_reference_only",
       "payload": {
+        "workflow_path": "denied",
         "approval_gate": "gateway_hosted_mcp_runtime",
         "status": "required_before_dispatch"
       }
@@ -161,6 +287,7 @@
       "protocol_version": "remote.v1alpha1",
       "redaction": "internal_reference_only",
       "payload": {
+        "workflow_path": "denied",
         "runner_id": "runr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
         "job_id": "job_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
         "adapter": "echo",
@@ -192,6 +319,7 @@
       "protocol_version": "gateway.v0.1",
       "redaction": "internal_reference_only",
       "payload": {
+        "workflow_path": "denied",
         "gateway_request_id": "gwreq_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
         "provider": "fake-hosted",
         "model": "fake-deterministic-v1",
@@ -221,6 +349,7 @@
       "protocol_version": "gateway.v0.1",
       "redaction": "internal_reference_only",
       "payload": {
+        "workflow_path": "denied",
         "mcp_server_id": "mcp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
         "hosting_mode": "gateway_hosted",
         "denial_reason": "protected_capability_disabled",
@@ -252,6 +381,7 @@
       "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
       "redaction": "internal_reference_only",
       "payload": {
+        "workflow_path": "denied",
         "subject": {
           "type": "gateway_request",
           "id": "gwreq_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
@@ -289,6 +419,7 @@
       "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
       "redaction": "internal_reference_only",
       "payload": {
+        "workflow_path": "denied",
         "action": "gateway.mcp.session.open",
         "outcome": "denied",
         "runtime_capability": "gateway.hosted_mcp_billing",
@@ -317,10 +448,156 @@
       "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
       "redaction": "redacted_summary",
       "payload": {
+        "workflow_path": "done_approved",
         "artifact_manifest_ref": "artifact_manifest_fixture_001",
         "log_excerpt_ref": "log_excerpt_fixture_redacted_001",
         "byte_count": 128,
         "omitted_fields": ["stdout_body", "stderr_body", "artifact_payload"]
+      }
+    },
+    {
+      "stage": "evidence_imported",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AM",
+      "type": "review.evidence.imported",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.620Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "service",
+        "id": "svc_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "evidence_import",
+        "id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "done_approved",
+        "evidence_import_id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "evidence_refs": [
+          "artifact_manifest_fixture_001",
+          "test_result_summary_fixture_001"
+        ],
+        "import_status": "imported",
+        "omitted_fields": ["artifact_payload", "stdout_body", "stderr_body"]
+      }
+    },
+    {
+      "stage": "review_packet_generated",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AN",
+      "type": "review.packet.generated",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.650Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "service",
+        "id": "svc_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "review_packet",
+        "id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "done_approved",
+        "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "evidence_import_id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "packet_ref": "review_packet_summary_fixture_001",
+        "coverage_summary": {
+          "lint": "passed",
+          "typecheck": "passed",
+          "contract_tests": "passed"
+        }
+      }
+    },
+    {
+      "stage": "human_decision_done",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AS",
+      "type": "review.human_decision.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.690Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "user",
+        "id": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "human_decision",
+        "id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EA"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "done_approved",
+        "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "decision": "done",
+        "decision_id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EA"
+      }
+    },
+    {
+      "stage": "evidence_missing",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AP",
+      "type": "review.evidence.missing",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.710Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "service",
+        "id": "svc_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "evidence_import",
+        "id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "missing_evidence",
+        "evidence_import_id": "evimp_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "missing_refs": ["test_result_summary_fixture_001"],
+        "decision_hint": "rework"
+      }
+    },
+    {
+      "stage": "human_decision_rework",
+      "event_shape": "summary_event",
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AQ",
+      "type": "review.human_decision.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-01-01T00:00:00.730Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "actor": {
+        "type": "user",
+        "id": "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "resource": {
+        "type": "human_decision",
+        "id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EB"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      "redaction": "redacted_summary",
+      "payload": {
+        "workflow_path": "rework_requested",
+        "review_packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        "decision": "rework",
+        "decision_id": "rvdec_01J9Z4P4BS0M9P2QJ6T8Z6W2EB",
+        "reason_code": "missing_required_evidence"
       }
     },
     {
@@ -345,6 +622,7 @@
       "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
       "redaction": "redacted_summary",
       "payload": {
+        "workflow_path": "denied",
         "status": "denied",
         "reason_code": "protected_capability_disabled",
         "reconstructable_from": [

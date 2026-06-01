@@ -9,6 +9,8 @@ export const AuditChainFixtureSchema = {
     "schema_version",
     "description",
     "chain",
+    "prototype_paths",
+    "negative_cases",
     "cross_repo_evidence",
     "events",
     "residual_risk"
@@ -34,7 +36,11 @@ export const AuditChainFixtureSchema = {
         "gateway_request_id",
         "mcp_server_id",
         "policy_decision_id",
-        "approval_id"
+        "approval_id",
+        "evidence_import_id",
+        "review_packet_id",
+        "done_decision_id",
+        "rework_decision_id"
       ],
       "additionalProperties": false,
       "properties": {
@@ -70,8 +76,34 @@ export const AuditChainFixtureSchema = {
         },
         "approval_id": {
           "$ref": "#/$defs/approvalId"
+        },
+        "evidence_import_id": {
+          "$ref": "#/$defs/evidenceImportId"
+        },
+        "review_packet_id": {
+          "$ref": "#/$defs/reviewPacketId"
+        },
+        "done_decision_id": {
+          "$ref": "#/$defs/reviewDecisionId"
+        },
+        "rework_decision_id": {
+          "$ref": "#/$defs/reviewDecisionId"
         }
       }
+    },
+    "prototype_paths": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/prototypePath"
+      },
+      "minItems": 4
+    },
+    "negative_cases": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/negativeCase"
+      },
+      "minItems": 2
     },
     "cross_repo_evidence": {
       "type": "object",
@@ -217,8 +249,124 @@ export const AuditChainFixtureSchema = {
       "type": "string",
       "maxLength": 120,
       "not": {
-        "pattern": "(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|bearer |password|raw[_-]?prompt|raw[_-]?log|artifact[_-]?body|-----BEGIN)"
+        "pattern": "(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|bearer |password|raw[_-]?prompt|raw[_-]?log|artifact[_-]?body|transcript[_-]?copy|-----BEGIN)"
       }
+    },
+    "prototypePath": {
+      "type": "object",
+      "required": [
+        "path",
+        "terminal_state",
+        "required_stages"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/workflowPath"
+        },
+        "terminal_state": {
+          "type": "string",
+          "enum": [
+            "done",
+            "rework",
+            "denied"
+          ]
+        },
+        "required_stages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/eventStage"
+          },
+          "minItems": 4
+        }
+      }
+    },
+    "workflowPath": {
+      "type": "string",
+      "enum": [
+        "done_approved",
+        "rework_requested",
+        "missing_evidence",
+        "denied"
+      ]
+    },
+    "negativeCase": {
+      "type": "object",
+      "required": [
+        "case",
+        "target_stage",
+        "operation",
+        "field",
+        "expected_error"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "case": {
+          "type": "string",
+          "enum": [
+            "missing_correlation_id",
+            "malformed_correlation_id"
+          ]
+        },
+        "target_stage": {
+          "$ref": "#/$defs/eventStage"
+        },
+        "operation": {
+          "type": "string",
+          "enum": [
+            "remove_field",
+            "set_field"
+          ]
+        },
+        "field": {
+          "const": "correlation_id"
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "expected_error": {
+          "const": "correlation_id"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "set_field"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "value"
+            ]
+          }
+        }
+      ]
+    },
+    "eventStage": {
+      "type": "string",
+      "enum": [
+        "user_request",
+        "policy_decision",
+        "plan_approval_requested",
+        "plan_approved",
+        "approval_requested",
+        "runner_dispatch",
+        "gateway_request",
+        "mcp_call_denied",
+        "usage_event",
+        "audit_event",
+        "artifact_log_event",
+        "evidence_imported",
+        "review_packet_generated",
+        "human_decision_done",
+        "evidence_missing",
+        "human_decision_rework",
+        "final_result"
+      ]
     },
     "eventId": {
       "allOf": [
@@ -308,6 +456,30 @@ export const AuditChainFixtureSchema = {
       ],
       "pattern": "^appr_[0-9A-HJKMNP-TV-Z]{26}$"
     },
+    "evidenceImportId": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      ],
+      "pattern": "^evimp_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "reviewPacketId": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      ],
+      "pattern": "^rvpkt_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "reviewDecisionId": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      ],
+      "pattern": "^rvdec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
     "actorRef": {
       "type": "object",
       "required": [
@@ -342,10 +514,13 @@ export const AuditChainFixtureSchema = {
           "enum": [
             "agent_run",
             "approval",
+            "evidence_import",
+            "human_decision",
             "gateway_request",
             "job",
             "mcp_server",
             "provider",
+            "review_packet",
             "runner"
           ]
         },
@@ -375,19 +550,7 @@ export const AuditChainFixtureSchema = {
       "additionalProperties": false,
       "properties": {
         "stage": {
-          "type": "string",
-          "enum": [
-            "user_request",
-            "policy_decision",
-            "approval_requested",
-            "runner_dispatch",
-            "gateway_request",
-            "mcp_call_denied",
-            "usage_event",
-            "audit_event",
-            "artifact_log_event",
-            "final_result"
-          ]
+          "$ref": "#/$defs/eventStage"
         },
         "event_shape": {
           "type": "string",

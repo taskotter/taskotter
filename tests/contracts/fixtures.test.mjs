@@ -513,6 +513,8 @@ test("synthetic audit chain reconstructs cross-surface correlation without sensi
   const expectedStages = new Set([
     "user_request",
     "policy_decision",
+    "plan_approval_requested",
+    "plan_approved",
     "approval_requested",
     "runner_dispatch",
     "gateway_request",
@@ -520,6 +522,11 @@ test("synthetic audit chain reconstructs cross-surface correlation without sensi
     "usage_event",
     "audit_event",
     "artifact_log_event",
+    "evidence_imported",
+    "review_packet_generated",
+    "human_decision_done",
+    "evidence_missing",
+    "human_decision_rework",
     "final_result",
   ]);
   const actualStages = new Set(fixture.events.map((event) => event.stage));
@@ -555,6 +562,90 @@ test("synthetic audit chain reconstructs cross-surface correlation without sensi
     assert.ok(
       ["internal_reference_only", "redacted_summary"].includes(event.redaction),
       `${event.stage} must not expose public or raw evidence`,
+    );
+    assert.ok(
+      Object.hasOwn(event.payload, "workflow_path"),
+      `${event.stage} must carry a workflow_path discriminator`,
+    );
+  }
+
+  const prototypePaths = new Map(
+    fixture.prototype_paths.map((path) => [path.path, path]),
+  );
+  assert.deepEqual([...prototypePaths.keys()].sort(), [
+    "denied",
+    "done_approved",
+    "missing_evidence",
+    "rework_requested",
+  ]);
+  assert.equal(prototypePaths.get("done_approved").terminal_state, "done");
+  assert.equal(prototypePaths.get("rework_requested").terminal_state, "rework");
+  assert.equal(prototypePaths.get("missing_evidence").terminal_state, "rework");
+  assert.equal(prototypePaths.get("denied").terminal_state, "denied");
+
+  const eventsByStage = new Map(
+    fixture.events.map((event) => [event.stage, event]),
+  );
+  for (const path of prototypePaths.values()) {
+    for (const stage of path.required_stages) {
+      assert.ok(
+        eventsByStage.has(stage),
+        `${path.path} path must reconstruct ${stage}`,
+      );
+    }
+  }
+
+  assert.equal(
+    eventsByStage.get("plan_approval_requested").approval_id,
+    fixture.chain.approval_id,
+  );
+  assert.equal(eventsByStage.get("plan_approved").payload.decision, "approved");
+  assert.equal(
+    eventsByStage.get("evidence_imported").payload.evidence_import_id,
+    fixture.chain.evidence_import_id,
+  );
+  assert.equal(
+    eventsByStage.get("review_packet_generated").payload.review_packet_id,
+    fixture.chain.review_packet_id,
+  );
+  assert.equal(
+    eventsByStage.get("human_decision_done").payload.decision,
+    "done",
+  );
+  assert.equal(
+    eventsByStage.get("human_decision_rework").payload.decision,
+    "rework",
+  );
+  assert.equal(
+    eventsByStage.get("evidence_missing").payload.decision_hint,
+    "rework",
+  );
+
+  const negativeCases = new Map(
+    fixture.negative_cases.map((negativeCase) => [
+      negativeCase.case,
+      negativeCase,
+    ]),
+  );
+  assert.deepEqual([...negativeCases.keys()].sort(), [
+    "malformed_correlation_id",
+    "missing_correlation_id",
+  ]);
+  for (const negativeCase of negativeCases.values()) {
+    const mutated = JSON.parse(JSON.stringify(fixture));
+    const targetEvent = mutated.events.find(
+      (event) => event.stage === negativeCase.target_stage,
+    );
+    assert.ok(targetEvent, `${negativeCase.case} target stage must exist`);
+    if (negativeCase.operation === "remove_field") {
+      delete targetEvent[negativeCase.field];
+    } else if (negativeCase.operation === "set_field") {
+      targetEvent[negativeCase.field] = negativeCase.value;
+    }
+    assert.throws(
+      () => validate(chainSchema, mutated),
+      new RegExp(negativeCase.expected_error),
+      `${negativeCase.case} must reject invalid correlation evidence`,
     );
   }
 
@@ -628,6 +719,7 @@ test("synthetic audit chain reconstructs cross-surface correlation without sensi
     "raw_prompt",
     "raw_log",
     "artifact_body",
+    "transcript_copy",
     "-----BEGIN",
   ]) {
     assert.ok(

@@ -132,6 +132,8 @@ const chainEvents = syntheticChain.events ?? [];
 const requiredStages = new Set([
   "user_request",
   "policy_decision",
+  "plan_approval_requested",
+  "plan_approved",
   "approval_requested",
   "runner_dispatch",
   "gateway_request",
@@ -139,6 +141,11 @@ const requiredStages = new Set([
   "usage_event",
   "audit_event",
   "artifact_log_event",
+  "evidence_imported",
+  "review_packet_generated",
+  "human_decision_done",
+  "evidence_missing",
+  "human_decision_rework",
   "final_result",
 ]);
 for (const stage of requiredStages) {
@@ -162,6 +169,82 @@ for (const event of chainEvents) {
     ["internal_reference_only", "redacted_summary"].includes(event.redaction),
     `${event.stage} must expose only redacted or internal-reference evidence`,
   );
+  assert.ok(
+    Object.hasOwn(event.payload, "workflow_path"),
+    `${event.stage} must include workflow path discriminator`,
+  );
+}
+
+const prototypePaths = new Map(
+  (syntheticChain.prototype_paths ?? []).map((path) => [path.path, path]),
+);
+assert.deepEqual([...prototypePaths.keys()].sort(), [
+  "denied",
+  "done_approved",
+  "missing_evidence",
+  "rework_requested",
+]);
+assert.equal(prototypePaths.get("done_approved").terminal_state, "done");
+assert.equal(prototypePaths.get("rework_requested").terminal_state, "rework");
+assert.equal(prototypePaths.get("missing_evidence").terminal_state, "rework");
+assert.equal(prototypePaths.get("denied").terminal_state, "denied");
+
+const eventsByStage = new Map(chainEvents.map((event) => [event.stage, event]));
+for (const path of prototypePaths.values()) {
+  for (const stage of path.required_stages) {
+    assert.ok(
+      eventsByStage.has(stage),
+      `${path.path} path must reconstruct ${stage}`,
+    );
+  }
+}
+assert.equal(
+  eventsByStage.get("plan_approval_requested").approval_id,
+  syntheticChain.chain.approval_id,
+);
+assert.equal(eventsByStage.get("plan_approved").payload.decision, "approved");
+assert.equal(
+  eventsByStage.get("evidence_imported").payload.evidence_import_id,
+  syntheticChain.chain.evidence_import_id,
+);
+assert.equal(
+  eventsByStage.get("review_packet_generated").payload.review_packet_id,
+  syntheticChain.chain.review_packet_id,
+);
+assert.equal(eventsByStage.get("human_decision_done").payload.decision, "done");
+assert.equal(
+  eventsByStage.get("human_decision_rework").payload.decision,
+  "rework",
+);
+assert.equal(
+  eventsByStage.get("evidence_missing").payload.workflow_path,
+  "missing_evidence",
+);
+
+const negativeCases = new Map(
+  (syntheticChain.negative_cases ?? []).map((negativeCase) => [
+    negativeCase.case,
+    negativeCase,
+  ]),
+);
+assert.deepEqual([...negativeCases.keys()].sort(), [
+  "malformed_correlation_id",
+  "missing_correlation_id",
+]);
+for (const negativeCase of negativeCases.values()) {
+  assert.ok(
+    eventsByStage.has(negativeCase.target_stage),
+    `${negativeCase.case} must target an existing stage`,
+  );
+  assert.equal(negativeCase.field, "correlation_id");
+  assert.equal(negativeCase.expected_error, "correlation_id");
+  if (negativeCase.operation === "set_field") {
+    assert.doesNotMatch(
+      negativeCase.value,
+      /^corr_[0-9A-HJKMNP-TV-Z]{26}$/,
+      `${negativeCase.case} must carry a malformed correlation value`,
+    );
+  }
 }
 
 for (const event of chainEvents) {
@@ -272,6 +355,7 @@ for (const prohibited of [
   "raw_prompt",
   "raw_log",
   "artifact_body",
+  "transcript_copy",
   "-----begin",
 ]) {
   assert.ok(
