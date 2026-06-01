@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{FromRequest, Request, State, rejection::JsonRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -88,7 +88,68 @@ pub struct HealthResponse {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ErrorResponse {
-    pub error: String,
+    pub error: ErrorEnvelope,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ErrorEnvelope {
+    pub code: ErrorCode,
+    pub message_key: String,
+    pub severity: ErrorSeverity,
+    pub retryable: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub field_errors: Vec<FieldError>,
+    pub support: ErrorSupportMetadata,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCode {
+    ValidationFailed,
+    Conflict,
+    InternalError,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorSeverity {
+    Error,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct FieldError {
+    pub field: String,
+    pub code: FieldErrorCode,
+    pub message_key: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldErrorCode {
+    Required,
+    Invalid,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ErrorSupportMetadata {
+    pub redacted: bool,
+}
+
+pub struct SafeJson<T>(T);
+
+impl<S, T> FromRequest<S> for SafeJson<T>
+where
+    S: Send + Sync,
+    Json<T>: FromRequest<S, Rejection = JsonRejection>,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
+        let Json(value) = Json::<T>::from_request(request, state)
+            .await
+            .map_err(|_| ApiError::invalid_payload())?;
+        Ok(Self(value))
+    }
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -141,7 +202,7 @@ async fn openapi() -> Json<utoipa::openapi::OpenApi> {
 )]
 async fn create_working_group(
     State(state): State<AppState>,
-    Json(request): Json<CreateWorkingGroupRequest>,
+    SafeJson(request): SafeJson<CreateWorkingGroupRequest>,
 ) -> Result<(StatusCode, Json<WorkingGroup>), ApiError> {
     require_non_empty("slug", &request.slug)?;
     require_non_empty("name", &request.name)?;
@@ -170,7 +231,7 @@ async fn create_working_group(
 )]
 async fn create_issue(
     State(state): State<AppState>,
-    Json(request): Json<CreateIssueRequest>,
+    SafeJson(request): SafeJson<CreateIssueRequest>,
 ) -> Result<(StatusCode, Json<Issue>), ApiError> {
     require_non_empty("title", &request.title)?;
 
@@ -199,7 +260,7 @@ async fn create_issue(
 )]
 async fn create_comment(
     State(state): State<AppState>,
-    Json(request): Json<CreateCommentRequest>,
+    SafeJson(request): SafeJson<CreateCommentRequest>,
 ) -> Result<(StatusCode, Json<Comment>), ApiError> {
     require_non_empty("body", &request.body)?;
 
@@ -227,7 +288,7 @@ async fn create_comment(
 )]
 async fn create_registry_entry(
     State(state): State<AppState>,
-    Json(request): Json<CreateRegistryEntryRequest>,
+    SafeJson(request): SafeJson<CreateRegistryEntryRequest>,
 ) -> Result<(StatusCode, Json<RegistryEntry>), ApiError> {
     require_non_empty("display_name", &request.display_name)?;
 
@@ -257,7 +318,7 @@ async fn create_registry_entry(
 )]
 async fn evaluate_policy(
     State(state): State<AppState>,
-    Json(request): Json<PolicyDecisionRequest>,
+    SafeJson(request): SafeJson<PolicyDecisionRequest>,
 ) -> Result<Json<PolicyDecision>, ApiError> {
     let mut store = state.store.lock().map_err(|_| ApiError::internal())?;
     let context = store.authorization_context();
@@ -272,7 +333,9 @@ async fn evaluate_policy(
     request_body = UsageEvaluationRequest,
     responses((status = 200, body = UsageEvaluation))
 )]
-async fn evaluate_usage(Json(request): Json<UsageEvaluationRequest>) -> Json<UsageEvaluation> {
+async fn evaluate_usage(
+    SafeJson(request): SafeJson<UsageEvaluationRequest>,
+) -> Json<UsageEvaluation> {
     Json(request.policy_set.evaluate(&request.snapshot))
 }
 
@@ -288,11 +351,11 @@ async fn evaluate_usage(Json(request): Json<UsageEvaluationRequest>) -> Json<Usa
 )]
 async fn create_usage_event(
     State(state): State<AppState>,
-    Json(event): Json<UsageAuditEventV1>,
+    SafeJson(event): SafeJson<UsageAuditEventV1>,
 ) -> Result<(StatusCode, Json<UsageAuditEventV1>), ApiError> {
     let ledger_entry = event
         .to_ledger_entry()
-        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        .map_err(|error| ApiError::invalid_payload_with_reason(&error.to_string()))?;
 
     let mut store = state.store.lock().map_err(|_| ApiError::internal())?;
     if let Some(existing) = store
@@ -309,9 +372,7 @@ async fn create_usage_event(
                 rejected_event_id: event.id,
                 reason_code: UsageSecuritySignalCode::IdempotencyPayloadMismatch,
             });
-            return Err(ApiError::conflict(
-                "idempotency key reused with different usage payload".to_owned(),
-            ));
+            return Err(ApiError::conflict());
         }
         return Ok((StatusCode::ACCEPTED, Json(existing)));
     }
@@ -341,7 +402,7 @@ async fn create_usage_event(
 )]
 async fn create_remote_usage_report(
     State(state): State<AppState>,
-    Json(report): Json<RemoteUsageReportV1>,
+    SafeJson(report): SafeJson<RemoteUsageReportV1>,
 ) -> Result<(StatusCode, Json<RemoteUsageReportV1>), ApiError> {
     require_schema_version("remote_usage_report.v1", &report.schema_version)?;
     require_non_empty("job_id", &report.job_id)?;
@@ -365,7 +426,7 @@ async fn create_remote_usage_report(
 )]
 async fn create_audit_event(
     State(state): State<AppState>,
-    Json(request): Json<CreateAuditEventRequest>,
+    SafeJson(request): SafeJson<CreateAuditEventRequest>,
 ) -> Result<(StatusCode, Json<AuditEvent>), ApiError> {
     require_non_empty("action", &request.action)?;
     require_non_empty("resource", &request.resource)?;
@@ -397,11 +458,11 @@ async fn create_audit_event(
 )]
 async fn create_run_timeline_event(
     State(state): State<AppState>,
-    Json(event): Json<RunTimelineEventV1>,
+    SafeJson(event): SafeJson<RunTimelineEventV1>,
 ) -> Result<(StatusCode, Json<RunTimelineEventV1>), ApiError> {
     event
         .validate_for_ingestion()
-        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        .map_err(|error| ApiError::invalid_payload_with_reason(&error.to_string()))?;
 
     state
         .store
@@ -421,11 +482,11 @@ async fn create_run_timeline_event(
 )]
 async fn create_operations_audit_event(
     State(state): State<AppState>,
-    Json(event): Json<OperationsAuditEventV1>,
+    SafeJson(event): SafeJson<OperationsAuditEventV1>,
 ) -> Result<(StatusCode, Json<OperationsAuditEventV1>), ApiError> {
     event
         .validate_for_ingestion()
-        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        .map_err(|error| ApiError::invalid_payload_with_reason(&error.to_string()))?;
 
     state
         .store
@@ -445,11 +506,11 @@ async fn create_operations_audit_event(
 )]
 async fn create_operations_health_event(
     State(state): State<AppState>,
-    Json(event): Json<OperationsHealthEventV1>,
+    SafeJson(event): SafeJson<OperationsHealthEventV1>,
 ) -> Result<(StatusCode, Json<OperationsHealthEventV1>), ApiError> {
     event
         .validate_for_ingestion()
-        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        .map_err(|error| ApiError::invalid_payload_with_reason(&error.to_string()))?;
 
     state
         .store
@@ -463,7 +524,7 @@ async fn create_operations_health_event(
 
 fn require_non_empty(field: &'static str, value: &str) -> Result<(), ApiError> {
     if value.trim().is_empty() {
-        return Err(ApiError::bad_request(format!("{field} is required")));
+        return Err(ApiError::required_field(field));
     }
 
     Ok(())
@@ -471,9 +532,10 @@ fn require_non_empty(field: &'static str, value: &str) -> Result<(), ApiError> {
 
 fn require_schema_version(expected: &'static str, actual: &str) -> Result<(), ApiError> {
     if actual != expected {
-        return Err(ApiError::bad_request(format!(
-            "schema_version must be {expected}"
-        )));
+        return Err(ApiError::invalid_field(
+            "schema_version",
+            &format!("expected {expected}, received {actual}"),
+        ));
     }
 
     Ok(())
@@ -482,41 +544,86 @@ fn require_schema_version(expected: &'static str, actual: &str) -> Result<(), Ap
 #[derive(Debug)]
 pub struct ApiError {
     status: StatusCode,
-    message: String,
+    body: ErrorEnvelope,
 }
 
 impl ApiError {
-    fn bad_request(message: String) -> Self {
+    fn required_field(field: &'static str) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
-            message,
+            body: ErrorEnvelope {
+                code: ErrorCode::ValidationFailed,
+                message_key: "errors.validation_failed".to_owned(),
+                severity: ErrorSeverity::Error,
+                retryable: false,
+                field_errors: vec![FieldError {
+                    field: field.to_owned(),
+                    code: FieldErrorCode::Required,
+                    message_key: "errors.field.required".to_owned(),
+                }],
+                support: ErrorSupportMetadata { redacted: true },
+            },
         }
     }
 
-    fn conflict(message: String) -> Self {
+    fn invalid_field(field: &'static str, _safe_reason: &str) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            body: ErrorEnvelope {
+                code: ErrorCode::ValidationFailed,
+                message_key: "errors.validation_failed".to_owned(),
+                severity: ErrorSeverity::Error,
+                retryable: false,
+                field_errors: vec![FieldError {
+                    field: field.to_owned(),
+                    code: FieldErrorCode::Invalid,
+                    message_key: "errors.field.invalid".to_owned(),
+                }],
+                support: ErrorSupportMetadata { redacted: true },
+            },
+        }
+    }
+
+    fn invalid_payload() -> Self {
+        Self::invalid_field("body", "invalid payload")
+    }
+
+    fn invalid_payload_with_reason(_safe_reason: &str) -> Self {
+        Self::invalid_payload()
+    }
+
+    fn conflict() -> Self {
         Self {
             status: StatusCode::CONFLICT,
-            message,
+            body: ErrorEnvelope {
+                code: ErrorCode::Conflict,
+                message_key: "errors.conflict".to_owned(),
+                severity: ErrorSeverity::Error,
+                retryable: false,
+                field_errors: Vec::new(),
+                support: ErrorSupportMetadata { redacted: true },
+            },
         }
     }
 
     fn internal() -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: "internal error".to_owned(),
+            body: ErrorEnvelope {
+                code: ErrorCode::InternalError,
+                message_key: "errors.internal".to_owned(),
+                severity: ErrorSeverity::Error,
+                retryable: true,
+                field_errors: Vec::new(),
+                support: ErrorSupportMetadata { redacted: true },
+            },
         }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (
-            self.status,
-            Json(ErrorResponse {
-                error: self.message,
-            }),
-        )
-            .into_response()
+        (self.status, Json(ErrorResponse { error: self.body })).into_response()
     }
 }
 
@@ -545,7 +652,13 @@ impl IntoResponse for ApiError {
         CreateIssueRequest,
         CreateRegistryEntryRequest,
         CreateWorkingGroupRequest,
+        ErrorCode,
+        ErrorEnvelope,
+        ErrorSeverity,
         ErrorResponse,
+        ErrorSupportMetadata,
+        FieldError,
+        FieldErrorCode,
         HealthResponse,
         Issue,
         HealthAvailability,
@@ -730,6 +843,258 @@ mod tests {
             document["components"]["schemas"]["RunTimelineEventV1"]["properties"]["stage"]
                 .is_object()
         );
+        let error = &document["components"]["schemas"]["ErrorEnvelope"];
+        assert!(error["properties"]["code"].is_object());
+        assert!(error["properties"]["message_key"].is_object());
+        assert!(error["properties"]["field_errors"].is_object());
+        assert!(error["properties"]["support"].is_object());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn validation_errors_return_stable_localization_contract()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/working-groups")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "slug": "   ",
+                            "name": "Platform"
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(envelope["error"]["code"], "validation_failed");
+        assert_eq!(envelope["error"]["message_key"], "errors.validation_failed");
+        assert_eq!(envelope["error"]["severity"], "error");
+        assert_eq!(envelope["error"]["retryable"], false);
+        assert_eq!(envelope["error"]["field_errors"][0]["field"], "slug");
+        assert_eq!(envelope["error"]["field_errors"][0]["code"], "required");
+        assert_eq!(
+            envelope["error"]["field_errors"][0]["message_key"],
+            "errors.field.required"
+        );
+        assert_eq!(envelope["error"]["support"]["redacted"], true);
+        assert!(envelope["error"].get("message").is_none());
+        assert!(
+            envelope["error"]["field_errors"][0]
+                .get("message")
+                .is_none()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ingestion_errors_redact_sensitive_payload_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/operations/audit/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "id": "evt_12345678901234567890123456",
+                            "type": "operations.audit.recorded",
+                            "envelope": {
+                                "version": "0.1.0",
+                                "occurred_at": "2026-06-01T00:00:00Z",
+                                "working_group_id": "wg_12345678901234567890123456",
+                                "tenant_id": "tenant_12345678901234567890123456",
+                                "correlation_id": "corr_12345678901234567890123456",
+                                "request_id": "req_12345678901234567890123456",
+                                "source": "control_plane",
+                                "actor": { "type": "agent", "id": "agent_12345678901234567890123456" },
+                                "resource": { "type": "provider", "id": "secret_token_value" },
+                                "redaction": "internal_reference_only"
+                            },
+                            "action": "credential_access",
+                            "outcome": "failed",
+                            "evidence": {
+                                "evidence_id": "evidence_12345678901234567890123456",
+                                "policy_decision_id": "poldec_12345678901234567890123456",
+                                "secret_ref": "secret_12345678901234567890123456"
+                            }
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        let serialized = serde_json::to_string(&envelope)?;
+
+        assert_eq!(envelope["error"]["code"], "validation_failed");
+        assert_eq!(envelope["error"]["field_errors"][0]["field"], "body");
+        assert_eq!(envelope["error"]["field_errors"][0]["code"], "invalid");
+        assert_eq!(envelope["error"]["support"]["redacted"], true);
+        assert!(!serialized.contains("secret_token_value"));
+        assert!(!serialized.contains("credential_access"));
+        assert!(!serialized.contains("poldec_12345678901234567890123456"));
+        Ok(())
+    }
+
+    async fn post_json_body(uri: &str, body: &str) -> Result<Value, Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(uri)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body.to_owned()))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        Ok(serde_json::from_slice(&body)?)
+    }
+
+    fn assert_json_rejection_is_redacted(
+        envelope: &Value,
+        forbidden_values: &[&str],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let serialized = serde_json::to_string(envelope)?;
+
+        assert_eq!(envelope["error"]["code"], "validation_failed");
+        assert_eq!(envelope["error"]["message_key"], "errors.validation_failed");
+        assert_eq!(envelope["error"]["field_errors"][0]["field"], "body");
+        assert_eq!(envelope["error"]["field_errors"][0]["code"], "invalid");
+        assert_eq!(envelope["error"]["support"]["redacted"], true);
+        assert!(envelope["error"].get("message").is_none());
+        assert!(
+            envelope["error"]["field_errors"][0]
+                .get("message")
+                .is_none()
+        );
+
+        for forbidden in forbidden_values {
+            assert!(
+                !serialized.contains(forbidden),
+                "error response leaked forbidden text: {forbidden}"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn json_extractor_rejections_use_redacted_error_contract()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let valid_audit_prefix = r#"{
+            "id": "evt_12345678901234567890123456",
+            "type": "operations.audit.recorded",
+            "envelope": {
+                "version": "0.1.0",
+                "occurred_at": "2026-06-01T00:00:00Z",
+                "working_group_id": "wg_12345678901234567890123456",
+                "tenant_id": "tenant_12345678901234567890123456",
+                "correlation_id": "corr_12345678901234567890123456",
+                "request_id": "req_12345678901234567890123456",
+                "source": "secret_token_value",
+                "actor": { "type": "agent", "id": "agent_12345678901234567890123456" },
+                "resource": { "type": "provider", "id": "provider_12345678901234567890123456" },
+                "redaction": "internal_reference_only"
+            },
+            "action": "credential_access",
+            "outcome": "failed",
+            "evidence": {
+                "evidence_id": "evidence_12345678901234567890123456",
+                "policy_decision_id": "poldec_12345678901234567890123456",
+                "secret_ref": "secret_12345678901234567890123456"
+            }
+        }"#;
+
+        let cases = [
+            (
+                "unknown enum",
+                "/v1/operations/audit/events",
+                valid_audit_prefix,
+                [
+                    "secret_token_value",
+                    "unknown variant",
+                    "OperationsSourceSurface",
+                    "serde",
+                    "Json",
+                    "line",
+                    "column",
+                    "stack",
+                    "backtrace",
+                ]
+                .as_slice(),
+            ),
+            (
+                "invalid type",
+                "/v1/working-groups",
+                r#"{"slug":{"nested":"secret_token_value"},"name":"Platform"}"#,
+                [
+                    "secret_token_value",
+                    "invalid type",
+                    "nested",
+                    "serde",
+                    "Json",
+                    "line",
+                    "column",
+                    "stack",
+                    "backtrace",
+                ]
+                .as_slice(),
+            ),
+            (
+                "missing field",
+                "/v1/working-groups",
+                r#"{"slug":"secret_token_value"}"#,
+                [
+                    "secret_token_value",
+                    "missing field",
+                    "name",
+                    "serde",
+                    "Json",
+                    "line",
+                    "column",
+                    "stack",
+                    "backtrace",
+                ]
+                .as_slice(),
+            ),
+            (
+                "malformed JSON",
+                "/v1/working-groups",
+                r#"{"slug":"secret_token_value","name":"#,
+                [
+                    "secret_token_value",
+                    "EOF",
+                    "expected",
+                    "serde",
+                    "Json",
+                    "line",
+                    "column",
+                    "stack",
+                    "backtrace",
+                ]
+                .as_slice(),
+            ),
+        ];
+
+        for (case, uri, body, forbidden_values) in cases {
+            let envelope = post_json_body(uri, body).await?;
+            assert_json_rejection_is_redacted(&envelope, forbidden_values)
+                .map_err(|error| format!("{case}: {error}"))?;
+        }
+
         Ok(())
     }
 
@@ -1251,7 +1616,19 @@ mod tests {
                     .body(Body::from(raw_payload.to_string()))?,
             )
             .await?;
-        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_json_rejection_is_redacted(
+            &envelope,
+            &[
+                "raw_prompt",
+                "do not store me",
+                "unknown field",
+                "serde",
+                "Json",
+            ],
+        )?;
         Ok(())
     }
 

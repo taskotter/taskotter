@@ -190,27 +190,33 @@ API error responses should expose stable machine-readable fields:
 {
   "error": {
     "code": "validation_failed",
-    "message": "Request validation failed.",
-    "details": [
+    "message_key": "errors.validation_failed",
+    "severity": "error",
+    "retryable": false,
+    "field_errors": [
       {
         "field": "title",
-        "reason": "required"
+        "code": "required",
+        "message_key": "errors.field.required"
       }
     ],
-    "request_id": "req_01H...",
-    "retryable": false
+    "support": {
+      "redacted": true
+    }
   }
 }
 ```
 
 Client behavior:
 
-- Branch on `error.code`, structured `details.reason`, HTTP status, event type,
-  status enum, and retry metadata.
+- Branch on `error.code`, structured `field_errors[].code`, HTTP status, event
+  type, status enum, and retry metadata.
 - Map stable codes to localized presentation in the client or a versioned
   message catalog.
 - Preserve `request_id`, `correlation_id`, issue keys, agent names, provider
   names, and other identifiers without translation.
+- Treat `message_key` as a resource lookup key, not as display copy from the
+  server.
 
 Server, notification, and email behavior:
 

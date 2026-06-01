@@ -524,15 +524,25 @@ test("error details are restricted to a safe allowlist", async () => {
   const openapi = await readJson(
     "contracts/openapi/taskotter-control-plane.openapi.json",
   );
-  const details =
+  const error = openapi.components.schemas.ErrorEnvelope.properties.error;
+  const fieldErrors =
     openapi.components.schemas.ErrorEnvelope.properties.error.properties
-      .details;
-  const allowedKeys = Object.keys(details.items.properties).sort();
+      .field_errors;
+  const allowedKeys = Object.keys(fieldErrors.items.properties).sort();
 
-  assert.equal(details.items.additionalProperties, false);
-  assert.deepEqual(allowedKeys, ["code", "field", "message", "redacted"]);
+  assert.equal(fieldErrors.items.additionalProperties, false);
+  assert.deepEqual(allowedKeys, ["code", "field", "message_key"]);
+  assert.ok(!Object.hasOwn(error.properties, "message"));
+  assert.ok(!Object.hasOwn(fieldErrors.items.properties, "message"));
+  assert.ok(!Object.hasOwn(fieldErrors.items.properties, "redacted"));
+  assert.deepEqual(error.properties.code.enum, [
+    "validation_failed",
+    "conflict",
+    "internal_error",
+  ]);
+  assert.equal(error.properties.support.properties.redacted.const, true);
   assert.match(
-    details.description,
+    fieldErrors.description,
     /Do not include request bodies, credentials/,
   );
 });
