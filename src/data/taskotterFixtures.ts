@@ -1,4 +1,5 @@
 import type { ConsoleData } from "./contracts";
+import { demoReviewControlSeed } from "./reviewControlDemoFixtures";
 
 export const taskotterConsoleFixture: ConsoleData = {
   workingGroup: {
@@ -309,4 +310,5 @@ export const taskotterConsoleFixture: ConsoleData = {
       "Done/rework decision is pending",
     ],
   },
+  demoReviewControlSeed,
 };
