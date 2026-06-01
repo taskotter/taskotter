@@ -56,8 +56,9 @@ pub struct RunnerDispatchRequest {
     pub runner_id: String,
     #[serde(default)]
     pub required_capabilities: Vec<RunnerCapability>,
-    #[serde(default)]
-    pub control_plane_flags: RunnerControlPlaneFlags,
+    #[serde(default, rename = "control_plane_flags", skip_serializing)]
+    #[schema(ignore)]
+    pub ignored_client_control_plane_flags: Option<serde_json::Value>,
     #[serde(default)]
     pub correlation_id: Option<String>,
     #[serde(default)]
@@ -98,8 +99,11 @@ pub struct RunnerDispatchDecision {
 }
 
 impl RunnerDispatchRequest {
-    pub fn evaluate_for_dispatch(&self) -> RunnerDispatchDecision {
-        let diagnostic = if self.control_plane_flags.kill_switch_engaged {
+    pub fn evaluate_for_dispatch(
+        &self,
+        control_plane_flags: &RunnerControlPlaneFlags,
+    ) -> RunnerDispatchDecision {
+        let diagnostic = if control_plane_flags.kill_switch_engaged {
             RunnerDispatchDiagnostic {
                 reason_code: "control_plane_kill_switch_engaged".to_owned(),
                 message_key: "runner.dispatch.refused.kill_switch".to_owned(),
@@ -108,7 +112,7 @@ impl RunnerDispatchRequest {
                 capability: None,
                 feature_flag: Some("runner.kill_switch.engaged".to_owned()),
             }
-        } else if !self.control_plane_flags.runner_dispatch_enabled {
+        } else if !control_plane_flags.runner_dispatch_enabled {
             RunnerDispatchDiagnostic {
                 reason_code: "runner_dispatch_disabled".to_owned(),
                 message_key: "runner.dispatch.refused.disabled".to_owned(),
@@ -122,7 +126,7 @@ impl RunnerDispatchRequest {
         } else if let Some(capability) = self
             .required_capabilities
             .iter()
-            .find(|capability| !self.control_plane_flags.capability_enabled(capability))
+            .find(|capability| !control_plane_flags.capability_enabled(capability))
         {
             RunnerDispatchDiagnostic {
                 reason_code: "runner_capability_disabled".to_owned(),
@@ -211,7 +215,7 @@ mod tests {
             run_id: "run_1".to_owned(),
             runner_id: "runner_1".to_owned(),
             required_capabilities: Vec::new(),
-            control_plane_flags: RunnerControlPlaneFlags::default(),
+            ignored_client_control_plane_flags: None,
             correlation_id: Some("corr_1".to_owned()),
             request_id: Some("req_1".to_owned()),
         }
@@ -220,7 +224,7 @@ mod tests {
     #[test]
     fn default_flags_refuse_dispatch_with_kill_switch_reason() {
         let request = dispatch_request();
-        let decision = request.evaluate_for_dispatch();
+        let decision = request.evaluate_for_dispatch(&RunnerControlPlaneFlags::default());
 
         assert!(!decision.accepted);
         assert_eq!(decision.status, RunnerDispatchStatus::Refused);
@@ -241,11 +245,14 @@ mod tests {
     #[test]
     fn disabled_capability_refuses_before_dispatch_with_diagnostic_reason() {
         let mut request = dispatch_request();
-        request.control_plane_flags.kill_switch_engaged = false;
-        request.control_plane_flags.runner_dispatch_enabled = true;
         request.required_capabilities = vec![RunnerCapability::LocalTools];
+        let control_plane_flags = RunnerControlPlaneFlags {
+            kill_switch_engaged: false,
+            runner_dispatch_enabled: true,
+            ..RunnerControlPlaneFlags::default()
+        };
 
-        let decision = request.evaluate_for_dispatch();
+        let decision = request.evaluate_for_dispatch(&control_plane_flags);
 
         assert!(!decision.accepted);
         assert_eq!(decision.status, RunnerDispatchStatus::Refused);
@@ -270,12 +277,15 @@ mod tests {
     #[test]
     fn enabled_dispatch_and_capability_can_queue_runner_job() {
         let mut request = dispatch_request();
-        request.control_plane_flags.kill_switch_engaged = false;
-        request.control_plane_flags.runner_dispatch_enabled = true;
-        request.control_plane_flags.local_tools_enabled = true;
         request.required_capabilities = vec![RunnerCapability::LocalTools];
+        let control_plane_flags = RunnerControlPlaneFlags {
+            kill_switch_engaged: false,
+            runner_dispatch_enabled: true,
+            local_tools_enabled: true,
+            ..RunnerControlPlaneFlags::default()
+        };
 
-        let decision = request.evaluate_for_dispatch();
+        let decision = request.evaluate_for_dispatch(&control_plane_flags);
 
         assert!(decision.accepted);
         assert_eq!(decision.status, RunnerDispatchStatus::Queued);

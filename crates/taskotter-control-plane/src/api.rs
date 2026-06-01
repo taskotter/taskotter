@@ -52,6 +52,7 @@ use crate::{
 pub struct AppState {
     store: Arc<Mutex<Store>>,
     policy_evaluator: Arc<BaselinePolicyEvaluator>,
+    runner_control_plane_flags: Arc<RunnerControlPlaneFlags>,
 }
 
 #[derive(Debug, Default)]
@@ -438,7 +439,7 @@ async fn dispatch_runner_job(
     require_non_empty("run_id", &request.run_id)?;
     require_non_empty("runner_id", &request.runner_id)?;
 
-    let decision = request.evaluate_for_dispatch();
+    let decision = request.evaluate_for_dispatch(&state.runner_control_plane_flags);
     state
         .store
         .lock()
@@ -886,6 +887,11 @@ mod tests {
             document["components"]["schemas"]["RunnerControlPlaneFlags"]["properties"]
                 ["kill_switch_engaged"]
                 .is_object()
+        );
+        assert!(
+            document["components"]["schemas"]["RunnerDispatchRequest"]["properties"]
+                .get("control_plane_flags")
+                .is_none()
         );
         let error = &document["components"]["schemas"]["ErrorEnvelope"];
         assert!(error["properties"]["code"].is_object());
@@ -1885,15 +1891,15 @@ mod tests {
             "run_id": "run_1",
             "runner_id": "runner_1",
             "required_capabilities": ["computer_use"],
-            "control_plane_flags": {
-                "kill_switch_engaged": false,
-                "runner_dispatch_enabled": true
-            },
             "correlation_id": "corr_1",
             "request_id": "req_1"
         });
 
-        let state = AppState::default();
+        let state = app_state_with_runner_flags(RunnerControlPlaneFlags {
+            kill_switch_engaged: false,
+            runner_dispatch_enabled: true,
+            ..RunnerControlPlaneFlags::default()
+        });
         let response = build_router(state.clone())
             .oneshot(
                 Request::builder()
@@ -1929,5 +1935,67 @@ mod tests {
         assert!(!store.runner_dispatch_decisions[0].accepted);
         drop(store);
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn runner_dispatch_ignores_body_flag_override_and_uses_server_kill_switch()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let request = json!({
+            "working_group_id": "wg_1",
+            "run_id": "run_1",
+            "runner_id": "runner_1",
+            "required_capabilities": ["computer_use"],
+            "control_plane_flags": {
+                "kill_switch_engaged": false,
+                "runner_dispatch_enabled": true,
+                "computer_use_enabled": true
+            },
+            "correlation_id": "corr_1",
+            "request_id": "req_1"
+        });
+
+        let state = AppState::default();
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/runner/dispatch")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request.to_string()))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(decision["accepted"], false);
+        assert_eq!(decision["status"], "refused");
+        assert_eq!(
+            decision["diagnostic"]["reason_code"],
+            "control_plane_kill_switch_engaged"
+        );
+        assert_eq!(
+            decision["diagnostic"]["feature_flag"],
+            "runner.kill_switch.engaged"
+        );
+
+        let store = state.store.lock().map_err(|_| "store lock failed")?;
+        assert_eq!(store.runner_dispatch_decisions.len(), 1);
+        assert_eq!(
+            store.runner_dispatch_decisions[0].diagnostic.reason_code,
+            "control_plane_kill_switch_engaged"
+        );
+        drop(store);
+        Ok(())
+    }
+
+    fn app_state_with_runner_flags(
+        runner_control_plane_flags: RunnerControlPlaneFlags,
+    ) -> AppState {
+        AppState {
+            runner_control_plane_flags: Arc::new(runner_control_plane_flags),
+            ..AppState::default()
+        }
     }
 }
