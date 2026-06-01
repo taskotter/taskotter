@@ -1,0 +1,140 @@
+[
+  {
+    "version": "0.1.0",
+    "type": "gateway.relay.started",
+    "request_id": "req_gateway_stream_1",
+    "correlation_id": "corr_gateway_stream_1",
+    "sequence": 0,
+    "provider": "openai-compatible",
+    "model": "test-model",
+    "redaction": "client_safe",
+    "route": {
+      "route_type": "primary",
+      "reason_code": "capability_match",
+      "policy_decision_id": "poldec_gateway_stream_1"
+    },
+    "payload": {
+      "kind": "empty"
+    }
+  },
+  {
+    "version": "0.1.0",
+    "type": "gateway.relay.output_delta",
+    "request_id": "req_gateway_stream_1",
+    "correlation_id": "corr_gateway_stream_1",
+    "sequence": 1,
+    "provider": "openai-compatible",
+    "model": "test-model",
+    "redaction": "client_safe",
+    "payload": {
+      "kind": "output_delta",
+      "text": "Hello"
+    }
+  },
+  {
+    "version": "0.1.0",
+    "type": "gateway.relay.tool_call_delta",
+    "request_id": "req_gateway_stream_1",
+    "correlation_id": "corr_gateway_stream_1",
+    "sequence": 2,
+    "provider": "openai-compatible",
+    "model": "test-model",
+    "redaction": "client_safe",
+    "payload": {
+      "kind": "tool_call_delta",
+      "tool_call_id": "call_1",
+      "name": "lookup_status",
+      "arguments_delta": "{\"issue\":\"BOG-538\"}"
+    }
+  },
+  {
+    "version": "0.1.0",
+    "type": "gateway.relay.usage_estimate",
+    "request_id": "req_gateway_stream_1",
+    "correlation_id": "corr_gateway_stream_1",
+    "sequence": 3,
+    "provider": "openai-compatible",
+    "model": "test-model",
+    "redaction": "client_safe",
+    "payload": {
+      "kind": "usage_estimate",
+      "input_tokens": 20,
+      "output_tokens": 4,
+      "total_tokens": 24,
+      "estimated_cost_micros": 30
+    }
+  },
+  {
+    "version": "0.1.0",
+    "type": "gateway.relay.completed",
+    "request_id": "req_gateway_stream_1",
+    "correlation_id": "corr_gateway_stream_1",
+    "sequence": 4,
+    "provider": "openai-compatible",
+    "model": "test-model",
+    "redaction": "client_safe",
+    "payload": {
+      "kind": "completed",
+      "finish_reason": "stop"
+    }
+  },
+  {
+    "version": "0.1.0",
+    "type": "gateway.relay.cancelled",
+    "request_id": "req_gateway_stream_2",
+    "correlation_id": "corr_gateway_stream_2",
+    "sequence": 0,
+    "provider": "openai-compatible",
+    "model": "test-model",
+    "redaction": "client_safe",
+    "payload": {
+      "kind": "terminal",
+      "reason_code": "client_cancelled",
+      "safe_message": "Request cancelled by the user.",
+      "retryable": false
+    }
+  },
+  {
+    "version": "0.1.0",
+    "type": "gateway.relay.failed",
+    "request_id": "req_gateway_stream_3",
+    "correlation_id": "corr_gateway_stream_3",
+    "sequence": 0,
+    "provider": "openai-compatible",
+    "model": "test-model",
+    "redaction": "client_safe",
+    "route": {
+      "route_type": "fallback",
+      "reason_code": "fallback_after_error",
+      "policy_decision_id": "poldec_gateway_stream_3"
+    },
+    "payload": {
+      "kind": "terminal",
+      "reason_code": "provider_rate_limited",
+      "safe_message": "Provider rate limit reached.",
+      "retryable": true,
+      "upstream_status": 429
+    }
+  },
+  {
+    "version": "0.1.0",
+    "type": "gateway.relay.denied",
+    "request_id": "req_gateway_stream_4",
+    "correlation_id": "corr_gateway_stream_4",
+    "sequence": 0,
+    "provider": "openai-compatible",
+    "model": "test-model",
+    "redaction": "client_safe",
+    "route": {
+      "route_type": "policy_denied",
+      "reason_code": "policy_denied",
+      "policy_decision_id": "poldec_gateway_stream_4"
+    },
+    "payload": {
+      "kind": "terminal",
+      "reason_code": "policy_denied",
+      "safe_message": "Request denied by policy.",
+      "retryable": false
+    }
+  }
+]

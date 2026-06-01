@@ -483,6 +483,43 @@ test("runtime events use the canonical event envelope and required correlation c
   }
 });
 
+test("gateway relay fixture covers client-safe streaming state mapping", async () => {
+  const schema = await readJson(
+    "contracts/schemas/gateway-relay-event.schema.json",
+  );
+  const events = await readJson("contracts/fixtures/gateway-relay-events.json");
+  const eventTypes = new Set();
+
+  for (const event of events) {
+    validate(schema, event);
+    eventTypes.add(event.type);
+    assert.equal(event.version, "0.1.0");
+    assert.equal(event.redaction, "client_safe");
+    assert.ok(!Object.hasOwn(event, "headers"));
+    assert.ok(!Object.hasOwn(event, "credentials"));
+    assert.ok(!Object.hasOwn(event, "raw_provider_metadata"));
+    assert.ok(!Object.hasOwn(event, "raw_payload"));
+  }
+
+  assert.deepEqual(eventTypes, new Set(schema.properties.type.enum));
+});
+
+test("gateway relay schema rejects sensitive provider details", async () => {
+  const schema = await readJson(
+    "contracts/schemas/gateway-relay-event.schema.json",
+  );
+  const [started] = await readJson("contracts/fixtures/gateway-relay-events.json");
+  const unsafe = structuredClone(started);
+  unsafe.payload = {
+    kind: "terminal",
+    reason_code: "internal_gateway_error",
+    safe_message: "authorization: bearer token leaked",
+    retryable: false,
+  };
+
+  assert.throws(() => validate(schema, unsafe), /must match exactly one schema/);
+});
+
 test("policy decisions require provenance and audit correlation fields", async () => {
   const schema = await readJson(
     "contracts/schemas/policy-decision.schema.json",

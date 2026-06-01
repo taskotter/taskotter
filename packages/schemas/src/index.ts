@@ -263,6 +263,267 @@ export const EventEnvelopeSchema = {
   }
 } as const;
 
+export const GatewayRelayEventSchema = {
+  "$id": "https://contracts.taskotter.dev/gateway-relay-event.schema.json",
+  "title": "GatewayRelayEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "type",
+    "request_id",
+    "correlation_id",
+    "sequence",
+    "provider",
+    "model",
+    "redaction",
+    "payload"
+  ],
+  "properties": {
+    "version": {
+      "const": "0.1.0"
+    },
+    "type": {
+      "enum": [
+        "gateway.relay.started",
+        "gateway.relay.output_delta",
+        "gateway.relay.tool_call_delta",
+        "gateway.relay.usage_estimate",
+        "gateway.relay.completed",
+        "gateway.relay.cancelled",
+        "gateway.relay.failed",
+        "gateway.relay.denied"
+      ]
+    },
+    "request_id": {
+      "$ref": "#/$defs/opaqueRequestId"
+    },
+    "correlation_id": {
+      "$ref": "#/$defs/opaqueCorrelationId"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "provider": {
+      "$ref": "#/$defs/safeIdentifier"
+    },
+    "model": {
+      "$ref": "#/$defs/safeIdentifier"
+    },
+    "redaction": {
+      "const": "client_safe"
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "route_type",
+        "reason_code"
+      ],
+      "properties": {
+        "route_type": {
+          "enum": [
+            "primary",
+            "fallback",
+            "local_runner",
+            "policy_denied"
+          ]
+        },
+        "reason_code": {
+          "enum": [
+            "explicit_selection",
+            "policy_default",
+            "capability_match",
+            "cost_limit",
+            "latency_preference",
+            "residency_constraint",
+            "runner_local_required",
+            "fallback_after_error",
+            "fallback_after_capacity",
+            "policy_denied"
+          ]
+        },
+        "policy_decision_id": {
+          "$ref": "#/$defs/opaquePolicyDecisionId"
+        }
+      }
+    },
+    "payload": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "empty"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "text"
+          ],
+          "properties": {
+            "kind": {
+              "const": "output_delta"
+            },
+            "text": {
+              "$ref": "#/$defs/clientSafeText"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "tool_call_id",
+            "name",
+            "arguments_delta"
+          ],
+          "properties": {
+            "kind": {
+              "const": "tool_call_delta"
+            },
+            "tool_call_id": {
+              "$ref": "#/$defs/safeIdentifier"
+            },
+            "name": {
+              "$ref": "#/$defs/safeIdentifier"
+            },
+            "arguments_delta": {
+              "$ref": "#/$defs/clientSafeText"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "usage_estimate"
+            },
+            "input_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "output_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "total_tokens": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "estimated_cost_micros": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "finish_reason"
+          ],
+          "properties": {
+            "kind": {
+              "const": "completed"
+            },
+            "finish_reason": {
+              "enum": [
+                "stop",
+                "length",
+                "tool_call",
+                "refusal"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "reason_code",
+            "safe_message",
+            "retryable"
+          ],
+          "properties": {
+            "kind": {
+              "const": "terminal"
+            },
+            "reason_code": {
+              "enum": [
+                "client_cancelled",
+                "policy_denied",
+                "usage_limit_reached",
+                "provider_timeout",
+                "provider_rate_limited",
+                "provider_unavailable",
+                "malformed_provider_stream",
+                "internal_gateway_error"
+              ]
+            },
+            "safe_message": {
+              "$ref": "#/$defs/clientSafeText"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "upstream_status": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 599
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "opaqueRequestId": {
+      "type": "string",
+      "pattern": "^req_[A-Za-z0-9_:-]{1,120}$"
+    },
+    "opaqueCorrelationId": {
+      "type": "string",
+      "pattern": "^corr_[A-Za-z0-9_:-]{1,120}$"
+    },
+    "opaquePolicyDecisionId": {
+      "type": "string",
+      "pattern": "^poldec_[A-Za-z0-9_:-]{1,120}$"
+    },
+    "safeIdentifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "not": {
+        "pattern": "(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|bearer |password|raw[_-]?prompt|raw[_-]?log|artifact[_-]?body|set-cookie|authorization:|-----BEGIN)"
+      }
+    },
+    "clientSafeText": {
+      "type": "string",
+      "maxLength": 4096,
+      "not": {
+        "pattern": "(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|bearer |password|raw[_-]?prompt|raw[_-]?log|artifact[_-]?body|set-cookie|authorization:|-----BEGIN)"
+      }
+    }
+  }
+} as const;
+
 export const PolicyDecisionSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.taskotter.dev/policy-decision.schema.json",
@@ -1774,6 +2035,7 @@ export const WorkflowDefinitionSchema = {
 export const contractSchemas = {
   "audit-event.schema.json": AuditEventSchema,
   "event-envelope.schema.json": EventEnvelopeSchema,
+  "gateway-relay-event.schema.json": GatewayRelayEventSchema,
   "policy-decision.schema.json": PolicyDecisionSchema,
   "usage-event.schema.json": UsageEventSchema,
   "workflow-definition.schema.json": WorkflowDefinitionSchema
