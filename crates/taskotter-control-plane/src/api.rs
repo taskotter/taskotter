@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use axum::{
     Json, Router,
-    extract::{FromRequest, Request, State, rejection::JsonRejection},
+    extract::{FromRequest, Path, Request, State, rejection::JsonRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -13,15 +13,20 @@ use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
 
 use crate::{
+    agent_result::{
+        ArtifactEvidence, ChangedFileEvidence, ChangedFileKind, CommandEvidence, CommandOutcome,
+        ImportAgentResultRequest, ImportedAgentResultEvidence, RedactionSummary,
+        ReviewPacketEvidence,
+    },
     audit::{AuditEvent, AuditEventId, CreateAuditEventRequest},
     authorization::{
         AuthorizationContext, DelegatedAuthority, RoleBinding, WorkingGroupMembership,
         WorkingGroupRole,
     },
     domain::{
-        Comment, CommentId, CreateCommentRequest, CreateIssueRequest, CreateRegistryEntryRequest,
-        CreateWorkingGroupRequest, Issue, IssueId, IssueStatus, RegistryEntry, WorkingGroup,
-        WorkingGroupId,
+        AgentId, Comment, CommentId, CreateCommentRequest, CreateIssueRequest,
+        CreateRegistryEntryRequest, CreateWorkingGroupRequest, Issue, IssueId, IssueStatus,
+        RegistryEntry, WorkingGroup, WorkingGroupId,
     },
     intake::{
         IntakeMode, IntakeRequest, IntakeResponse, IntakeSourceKind, IntakeValidationError,
@@ -71,9 +76,19 @@ struct Store {
     usage_security_signals: Vec<UsageSecuritySignal>,
     remote_usage_reports: Vec<RemoteUsageReportV1>,
     work_items: Vec<PrototypeWorkItem>,
+    imported_agent_result_evidence: Vec<ImportedAgentResultEvidence>,
+    review_packet_refs: Vec<ReviewPacketRef>,
     run_timeline_events: Vec<RunTimelineEventV1>,
     operations_audit_events: Vec<OperationsAuditEventV1>,
     operations_health_events: Vec<OperationsHealthEventV1>,
+}
+
+#[derive(Debug, Clone)]
+struct ReviewPacketRef {
+    work_item_id: IssueId,
+    evidence_id: String,
+    timeline_event_id: String,
+    audit_event_id: String,
 }
 
 impl Store {
@@ -112,6 +127,7 @@ pub struct ErrorEnvelope {
 pub enum ErrorCode {
     ValidationFailed,
     Conflict,
+    NotFound,
     InternalError,
 }
 
@@ -170,6 +186,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/usage/evaluate", post(evaluate_usage))
         .route("/v1/usage/events", post(create_usage_event))
         .route("/v1/remote/usage-reports", post(create_remote_usage_report))
+        .route("/v1/agent-result-imports", post(import_agent_result))
+        .route("/v1/review-packets/{work_item_id}", get(get_review_packet))
         .route("/v1/audit/events", post(create_audit_event))
         .route(
             "/v1/operations/timeline/events",
@@ -473,6 +491,128 @@ async fn create_remote_usage_report(
 
 #[utoipa::path(
     post,
+    path = "/v1/agent-result-imports",
+    request_body = ImportAgentResultRequest,
+    responses((status = 202, body = ReviewPacketEvidence), (status = 400, body = ErrorResponse))
+)]
+async fn import_agent_result(
+    State(state): State<AppState>,
+    SafeJson(request): SafeJson<ImportAgentResultRequest>,
+) -> Result<(StatusCode, Json<ReviewPacketEvidence>), ApiError> {
+    let (evidence, timeline_event_id, audit_event_id) = request
+        .into_evidence()
+        .map_err(|error| ApiError::invalid_payload_with_reason(&error.to_string()))?;
+    let packet = evidence.to_review_packet(timeline_event_id.clone(), audit_event_id.clone());
+    let timeline_event =
+        imported_result_timeline_event(timeline_event_id.clone(), evidence.work_item_id);
+    timeline_event
+        .validate_for_ingestion()
+        .map_err(|_| ApiError::internal())?;
+    let audit_event = imported_result_audit_event(
+        audit_event_id.clone(),
+        evidence.work_item_id,
+        evidence.evidence_id.clone(),
+    )?;
+    let review_packet_ref = ReviewPacketRef {
+        work_item_id: evidence.work_item_id,
+        evidence_id: evidence.evidence_id.clone(),
+        timeline_event_id,
+        audit_event_id,
+    };
+
+    let mut store = state.store.lock().map_err(|_| ApiError::internal())?;
+    store.run_timeline_events.push(timeline_event);
+    store.audit_events.push(audit_event);
+    store.review_packet_refs.push(review_packet_ref);
+    store.imported_agent_result_evidence.push(evidence);
+
+    Ok((StatusCode::ACCEPTED, Json(packet)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/review-packets/{work_item_id}",
+    params(("work_item_id" = Uuid, Path, description = "Prototype work item identifier")),
+    responses((status = 200, body = ReviewPacketEvidence), (status = 404, body = ErrorResponse))
+)]
+async fn get_review_packet(
+    State(state): State<AppState>,
+    Path(work_item_id): Path<IssueId>,
+) -> Result<Json<ReviewPacketEvidence>, ApiError> {
+    let store = state.store.lock().map_err(|_| ApiError::internal())?;
+    let packet_ref = store
+        .review_packet_refs
+        .iter()
+        .rev()
+        .find(|packet_ref| packet_ref.work_item_id == work_item_id)
+        .ok_or_else(ApiError::not_found)?;
+    let evidence = store
+        .imported_agent_result_evidence
+        .iter()
+        .find(|evidence| evidence.evidence_id == packet_ref.evidence_id)
+        .ok_or_else(ApiError::not_found)?;
+
+    Ok(Json(evidence.to_review_packet(
+        packet_ref.timeline_event_id.clone(),
+        packet_ref.audit_event_id.clone(),
+    )))
+}
+
+fn imported_result_timeline_event(event_id: String, work_item_id: IssueId) -> RunTimelineEventV1 {
+    RunTimelineEventV1 {
+        id: event_id,
+        r#type: "operations.timeline.recorded".to_owned(),
+        envelope: imported_result_envelope(work_item_id),
+        stage: RunTimelineStage::Completed,
+        status_reason: Some(RunTimelineStatusReason::Completed),
+        usage_link: None,
+        health_signal: None,
+    }
+}
+
+fn imported_result_audit_event(
+    event_id: String,
+    work_item_id: IssueId,
+    evidence_id: String,
+) -> Result<AuditEvent, ApiError> {
+    Ok(AuditEvent {
+        id: AuditEventId(Uuid::parse_str(&event_id).map_err(|_| ApiError::internal())?),
+        working_group_id: WorkingGroupId::new(),
+        actor: crate::domain::Actor::Agent {
+            id: AgentId(Uuid::new_v4()),
+        },
+        action: "agent_result.imported".to_owned(),
+        resource: format!("issue:{}#{}", work_item_id.0, evidence_id),
+        outcome: crate::audit::AuditOutcome::Succeeded,
+    })
+}
+
+fn imported_result_envelope(work_item_id: IssueId) -> OperationsEventEnvelope {
+    let short_id = work_item_id.0.to_string();
+    OperationsEventEnvelope {
+        version: "0.1.0".to_owned(),
+        occurred_at: "2026-06-01T00:00:00Z".to_owned(),
+        working_group_id: format!("wg_{short_id}"),
+        tenant_id: Some(format!("tenant_{short_id}")),
+        correlation_id: format!("corr_{short_id}"),
+        request_id: format!("req_{short_id}"),
+        run_id: None,
+        job_id: None,
+        source: OperationsSourceSurface::ControlPlane,
+        actor: OperationsActorRef {
+            r#type: "agent".to_owned(),
+            id: format!("agent_{short_id}"),
+        },
+        resource: OperationsResourceRef {
+            r#type: "issue".to_owned(),
+            id: format!("issue_{short_id}"),
+        },
+        redaction: RedactionClassification::RedactedSummary,
+    }
+}
+
+#[utoipa::path(
+    post,
     path = "/v1/audit/events",
     request_body = CreateAuditEventRequest,
     responses((status = 201, body = AuditEvent), (status = 400, body = ErrorResponse))
@@ -679,6 +819,20 @@ impl ApiError {
         }
     }
 
+    fn not_found() -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            body: ErrorEnvelope {
+                code: ErrorCode::NotFound,
+                message_key: "errors.not_found".to_owned(),
+                severity: ErrorSeverity::Error,
+                retryable: false,
+                field_errors: Vec::new(),
+                support: ErrorSupportMetadata { redacted: true },
+            },
+        }
+    }
+
     fn internal() -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -713,13 +867,20 @@ impl IntoResponse for ApiError {
         evaluate_usage,
         create_usage_event,
         create_remote_usage_report,
+        import_agent_result,
+        get_review_packet,
         create_audit_event,
         create_run_timeline_event,
         create_operations_audit_event,
         create_operations_health_event
     ),
     components(schemas(
+        ArtifactEvidence,
         AuditEvent,
+        ChangedFileEvidence,
+        ChangedFileKind,
+        CommandEvidence,
+        CommandOutcome,
         CreateAuditEventRequest,
         Comment,
         CreateCommentRequest,
@@ -739,6 +900,8 @@ impl IntoResponse for ApiError {
         IntakeResponse,
         IntakeSourceKind,
         Issue,
+        ImportAgentResultRequest,
+        ImportedAgentResultEvidence,
         HealthAvailability,
         HealthDegradedReason,
         HealthSignalRef,
@@ -757,7 +920,9 @@ impl IntoResponse for ApiError {
         PolicyDecisionRequest,
         PolicyActorRef,
         RedactionClassification,
+        RedactionSummary,
         RegistryEntry,
+        ReviewPacketEvidence,
         RoleBinding,
         RemoteUsageReportV1,
         RunTimelineEventV1,
@@ -2066,6 +2231,177 @@ mod tests {
 
         assert_eq!(report["schema_version"], "remote_usage_report.v1");
         assert_eq!(report["status"], "succeeded");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn imports_fixture_result_into_review_packet_and_audit_timeline()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        let request: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/agent-result-import.manual.json"
+        ))?;
+
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/agent-result-imports")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request.to_string()))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let packet: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(packet["work_item_id"], request["work_item_id"]);
+        assert!(
+            packet["evidence_id"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("evidence_")
+        );
+        assert_eq!(packet["changed_files"].as_array().map(Vec::len), Some(2));
+        assert_eq!(packet["commands"][0]["outcome"], "passed");
+        assert_eq!(packet["redaction_summary"]["redacted"], false);
+        assert!(
+            packet["timeline_event_id"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("evt_")
+        );
+        assert!(Uuid::parse_str(packet["audit_event_id"].as_str().unwrap_or("")).is_ok());
+
+        let work_item_id = request["work_item_id"]
+            .as_str()
+            .ok_or("fixture work_item_id must be a string")?;
+        let review_packet_uri = format!("/v1/review-packets/{work_item_id}");
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(review_packet_uri)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let fetched: Value = serde_json::from_slice(&body)?;
+        assert_eq!(fetched["evidence_id"], packet["evidence_id"]);
+
+        let store = state.store.lock().map_err(|_| "store lock failed")?;
+        assert_eq!(store.imported_agent_result_evidence.len(), 1);
+        assert_eq!(store.review_packet_refs.len(), 1);
+        assert_eq!(store.run_timeline_events.len(), 1);
+        assert_eq!(
+            store.run_timeline_events[0].stage,
+            RunTimelineStage::Completed
+        );
+        assert_eq!(store.audit_events.len(), 1);
+        assert_eq!(store.audit_events[0].action, "agent_result.imported");
+        assert_eq!(
+            store.audit_events[0].id.0.to_string(),
+            packet["audit_event_id"]
+        );
+        drop(store);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn import_rejects_malformed_result_payload_without_leaking_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/agent-result-imports")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "schema_version": "agent_result_import.v1",
+                            "work_item_id": "018f30d5-9471-7c4c-85c4-0e14c3f76c10",
+                            "source_agent_run_ref": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2AR",
+                            "summary": "Fixture mentions secret_token_value",
+                            "raw_log": "secret_token_value"
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_json_rejection_is_redacted(
+            &envelope,
+            &["secret_token_value", "raw_log", "unknown field", "serde"],
+        )?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn import_redacts_sensitive_payload_before_storage_and_display()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        let mut request: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/agent-result-import.manual.json"
+        ))?;
+        request["summary"] = json!("Fixture accidentally included bearer token details.");
+        request["commands"][0]["summary"] = json!("raw_log output intentionally omitted.");
+
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/agent-result-imports")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request.to_string()))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let packet: Value = serde_json::from_slice(&body)?;
+        let serialized = serde_json::to_string(&packet)?;
+
+        assert_eq!(packet["summary"], "[redacted]");
+        assert_eq!(packet["commands"][0]["summary"], "[redacted]");
+        assert_eq!(packet["redaction_summary"]["redacted"], true);
+        assert!(!serialized.contains("bearer token"));
+        assert!(!serialized.contains("raw_log"));
+
+        let store = state.store.lock().map_err(|_| "store lock failed")?;
+        assert_eq!(
+            store.imported_agent_result_evidence[0].summary,
+            "[redacted]"
+        );
+        assert_eq!(
+            store.imported_agent_result_evidence[0].commands[0].summary,
+            "[redacted]"
+        );
+        drop(store);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn review_packet_returns_not_found_without_imported_evidence()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/v1/review-packets/018f30d5-9471-7c4c-85c4-0e14c3f76c10")
+                    .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_eq!(envelope["error"]["code"], "not_found");
+        assert_eq!(envelope["error"]["support"]["redacted"], true);
         Ok(())
     }
 }
