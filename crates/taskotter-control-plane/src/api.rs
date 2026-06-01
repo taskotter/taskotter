@@ -28,6 +28,10 @@ use crate::{
         CreateRegistryEntryRequest, CreateWorkingGroupRequest, Issue, IssueId, IssueStatus,
         RegistryEntry, WorkingGroup, WorkingGroupId,
     },
+    intake::{
+        IntakeMode, IntakeRequest, IntakeResponse, IntakeSourceKind, IntakeValidationError,
+        PrototypeWorkItem, PrototypeWorkItemInput, RiskTierHint, WorkItemId,
+    },
     operations::{
         HealthAvailability, HealthDegradedReason, HealthSignalRef, HealthTargetKind,
         HealthTargetRef, OperationsActorRef, OperationsAuditAction, OperationsAuditEventV1,
@@ -74,6 +78,7 @@ struct Store {
     usage_reservations: Vec<UsageReservation>,
     usage_security_signals: Vec<UsageSecuritySignal>,
     remote_usage_reports: Vec<RemoteUsageReportV1>,
+    work_items: Vec<PrototypeWorkItem>,
     imported_agent_result_evidence: Vec<ImportedAgentResultEvidence>,
     review_packet_refs: Vec<ReviewPacketRef>,
     run_timeline_events: Vec<RunTimelineEventV1>,
@@ -177,6 +182,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/openapi.json", get(openapi))
         .route("/v1/working-groups", post(create_working_group))
         .route("/v1/issues", post(create_issue))
+        .route("/v1/work-items/intake", post(intake_work_item))
         .route("/v1/comments", post(create_comment))
         .route("/v1/registry", post(create_registry_entry))
         .route("/v1/policy/decisions", post(evaluate_policy))
@@ -274,6 +280,53 @@ async fn create_issue(
         .push(issue.clone());
 
     Ok((StatusCode::CREATED, Json(issue)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/work-items/intake",
+    request_body = IntakeRequest,
+    responses((status = 200, body = IntakeResponse), (status = 201, body = IntakeResponse), (status = 400, body = ErrorResponse))
+)]
+async fn intake_work_item(
+    State(state): State<AppState>,
+    SafeJson(request): SafeJson<IntakeRequest>,
+) -> Result<(StatusCode, Json<IntakeResponse>), ApiError> {
+    let mode = request.mode.clone();
+    let input = request
+        .into_work_item_input()
+        .map_err(ApiError::from_intake_validation)?;
+
+    if mode == IntakeMode::Preview {
+        return Ok((
+            StatusCode::OK,
+            Json(IntakeResponse {
+                mode,
+                input,
+                work_item: None,
+            }),
+        ));
+    }
+
+    let work_item = PrototypeWorkItem {
+        id: WorkItemId::new(),
+        input: input.clone(),
+    };
+    state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal())?
+        .work_items
+        .push(work_item.clone());
+
+    Ok((
+        StatusCode::CREATED,
+        Json(IntakeResponse {
+            mode,
+            input,
+            work_item: Some(work_item),
+        }),
+    ))
 }
 
 #[utoipa::path(
@@ -752,6 +805,26 @@ impl ApiError {
         Self::invalid_payload()
     }
 
+    fn from_intake_validation(error: IntakeValidationError) -> Self {
+        match error {
+            IntakeValidationError::Required(field) => Self::required_field(field),
+            IntakeValidationError::MissingAcceptanceCriteria => {
+                Self::required_field("acceptance_criteria")
+            }
+            IntakeValidationError::BodyTooLarge => Self::invalid_field("body", "too large"),
+            IntakeValidationError::EmptyAcceptanceCriterion
+            | IntakeValidationError::TooManyAcceptanceCriteria => {
+                Self::invalid_field("acceptance_criteria", "invalid")
+            }
+            IntakeValidationError::SensitivePattern { field } => {
+                Self::invalid_field(field, "sensitive pattern")
+            }
+            IntakeValidationError::UnsupportedSourceUrl => {
+                Self::invalid_field("source_url", "unsupported")
+            }
+        }
+    }
+
     fn conflict() -> Self {
         Self {
             status: StatusCode::CONFLICT,
@@ -807,6 +880,7 @@ impl IntoResponse for ApiError {
         health,
         create_working_group,
         create_issue,
+        intake_work_item,
         create_comment,
         create_registry_entry,
         evaluate_policy,
@@ -841,6 +915,10 @@ impl IntoResponse for ApiError {
         FieldError,
         FieldErrorCode,
         HealthResponse,
+        IntakeMode,
+        IntakeRequest,
+        IntakeResponse,
+        IntakeSourceKind,
         Issue,
         ImportAgentResultRequest,
         ImportedAgentResultEvidence,
@@ -870,6 +948,9 @@ impl IntoResponse for ApiError {
         RunTimelineEventV1,
         RunTimelineStage,
         RunTimelineStatusReason,
+        PrototypeWorkItem,
+        PrototypeWorkItemInput,
+        RiskTierHint,
         CostReconciliationStatus,
         MeteringUnit,
         QuotaEnforcement,
@@ -888,6 +969,7 @@ impl IntoResponse for ApiError {
         UsageSecuritySignalCode,
         UsageSourceSurface,
         UsageSubjectRef,
+        WorkItemId,
         WorkingGroup,
         WorkingGroupMembership,
         WorkingGroupRole
@@ -1017,9 +1099,13 @@ mod tests {
         assert!(document["paths"]["/v1/operations/timeline/events"].is_object());
         assert!(document["paths"]["/v1/operations/audit/events"].is_object());
         assert!(document["paths"]["/v1/operations/health/events"].is_object());
+        assert!(document["paths"]["/v1/work-items/intake"].is_object());
         assert!(
             document["components"]["schemas"]["PolicyDecision"]["properties"]["allowed"]
                 .is_object()
+        );
+        assert!(
+            document["components"]["schemas"]["IntakeRequest"]["properties"]["mode"].is_object()
         );
         assert!(
             document["components"]["schemas"]["UsageAuditEventV1"]["properties"]["status"]
@@ -1034,6 +1120,357 @@ mod tests {
         assert!(error["properties"]["message_key"].is_object());
         assert!(error["properties"]["field_errors"].is_object());
         assert!(error["properties"]["support"].is_object());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn previews_manual_work_item_intake() -> Result<(), Box<dyn std::error::Error>> {
+        let working_group_id = Uuid::new_v4();
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/work-items/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "working_group_id": working_group_id,
+                            "mode": "preview",
+                            "input": {
+                                "source": "manual",
+                                "title": "  Review control request ",
+                                "body": "Create a deterministic preview.",
+                                "source_url": "https://example.test/requests/1",
+                                "acceptance_criteria": ["Preview returns normalized fields"],
+                                "risk_tier_hint": "medium"
+                            }
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let payload: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(payload["mode"], "preview");
+        assert_eq!(payload["input"]["title"], "Review control request");
+        assert_eq!(payload["input"]["source"], "manual");
+        assert!(payload["work_item"].is_null());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn creates_github_issue_shaped_work_item_intake() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../fixtures/intake.github-issue.json"))?;
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/work-items/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(fixture.to_string()))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let payload: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(payload["mode"], "create");
+        assert_eq!(payload["input"]["source"], "github_issue");
+        assert_eq!(payload["input"]["external_reference"], "example/repo#42");
+        assert!(payload["work_item"]["id"].is_string());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn intake_rejects_missing_acceptance_criteria() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/work-items/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "working_group_id": Uuid::new_v4(),
+                            "mode": "preview",
+                            "input": {
+                                "source": "manual",
+                                "title": "Missing criteria",
+                                "body": "Body",
+                                "acceptance_criteria": []
+                            }
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let payload: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(
+            payload["error"]["field_errors"][0]["field"],
+            "acceptance_criteria"
+        );
+        assert_eq!(payload["error"]["support"]["redacted"], true);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn intake_rejects_oversized_body() -> Result<(), Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/work-items/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "working_group_id": Uuid::new_v4(),
+                            "mode": "preview",
+                            "input": {
+                                "source": "manual",
+                                "title": "Oversized",
+                                "body": "a".repeat(16 * 1024 + 1),
+                                "acceptance_criteria": ["Safe"]
+                            }
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let payload: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(payload["error"]["field_errors"][0]["field"], "body");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn intake_rejects_unsupported_source_url() -> Result<(), Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/work-items/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "working_group_id": Uuid::new_v4(),
+                            "mode": "preview",
+                            "input": {
+                                "source": "manual",
+                                "title": "Bad source URL",
+                                "body": "Body",
+                                "source_url": "file:///tmp/private.txt",
+                                "acceptance_criteria": ["Safe"]
+                            }
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let payload: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(payload["error"]["field_errors"][0]["field"], "source_url");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn intake_rejects_secret_shaped_input() -> Result<(), Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/work-items/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "working_group_id": Uuid::new_v4(),
+                            "mode": "preview",
+                            "input": {
+                                "source": "github_issue",
+                                "title": "Secret-shaped body",
+                                "body": "Authorization: Bearer example-token",
+                                "source_url": "https://github.com/example/repo/issues/7",
+                                "acceptance_criteria": ["Safe"],
+                                "repository": "example/repo",
+                                "issue_number": 7
+                            }
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let payload: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(payload["error"]["field_errors"][0]["field"], "body");
+        assert_eq!(payload["error"]["support"]["redacted"], true);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn intake_rejects_expanded_sensitive_markers_without_echoing_raw_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let cases = [
+            (
+                "title",
+                "client_secret fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "client_secret fixture-marker",
+                    "body": "Body",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["Safe"]
+                }),
+            ),
+            (
+                "body",
+                "password fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "Title",
+                    "body": "password fixture-marker",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["Safe"]
+                }),
+            ),
+            (
+                "acceptance_criteria",
+                "raw_log fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "Title",
+                    "body": "Body",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["raw_log fixture-marker"]
+                }),
+            ),
+            (
+                "body",
+                "cookie: fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "Title",
+                    "body": "cookie: fixture-marker",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["Safe"]
+                }),
+            ),
+            (
+                "body",
+                "token fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "Title",
+                    "body": "token fixture-marker",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["Safe"]
+                }),
+            ),
+            (
+                "external_reference",
+                "raw_log/repo",
+                json!({
+                    "source": "github_issue",
+                    "title": "Title",
+                    "body": "Body",
+                    "source_url": "https://github.com/example/repo/issues/8",
+                    "acceptance_criteria": ["Safe"],
+                    "repository": "raw_log/repo",
+                    "issue_number": 8
+                }),
+            ),
+        ];
+
+        for (field, raw_value, input) in cases {
+            let response = build_router(AppState::default())
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/v1/work-items/intake")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(
+                            json!({
+                                "working_group_id": Uuid::new_v4(),
+                                "mode": "preview",
+                                "input": input
+                            })
+                            .to_string(),
+                        ))?,
+                )
+                .await?;
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let body = to_bytes(response.into_body(), usize::MAX).await?;
+            let payload: Value = serde_json::from_slice(&body)?;
+            let serialized = serde_json::to_string(&payload)?;
+
+            assert_eq!(payload["error"]["field_errors"][0]["field"], field);
+            assert_eq!(payload["error"]["support"]["redacted"], true);
+            assert!(!serialized.contains(raw_value));
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn intake_rejects_credential_shaped_source_urls_without_echoing_raw_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let cases = [
+            "https://user:password@example.test/request/1",
+            "https://example.test/request/1?client_secret=fixture-marker",
+            "https://example.test/request/1?secret=fixture-marker",
+        ];
+
+        for raw_url in cases {
+            let response = build_router(AppState::default())
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/v1/work-items/intake")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(
+                            json!({
+                                "working_group_id": Uuid::new_v4(),
+                                "mode": "preview",
+                                "input": {
+                                    "source": "manual",
+                                    "title": "Title",
+                                    "body": "Body",
+                                    "source_url": raw_url,
+                                    "acceptance_criteria": ["Safe"]
+                                }
+                            })
+                            .to_string(),
+                        ))?,
+                )
+                .await?;
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let body = to_bytes(response.into_body(), usize::MAX).await?;
+            let payload: Value = serde_json::from_slice(&body)?;
+            let serialized = serde_json::to_string(&payload)?;
+
+            assert_eq!(payload["error"]["field_errors"][0]["field"], "source_url");
+            assert_eq!(payload["error"]["support"]["redacted"], true);
+            assert!(!serialized.contains(raw_url));
+        }
         Ok(())
     }
 
