@@ -1,4 +1,5 @@
 import type { ConsoleData } from "./contracts";
+import { demoReviewControlSeed } from "./reviewControlDemoFixtures";
 
 export const taskotterConsoleFixture: ConsoleData = {
   workingGroup: {
@@ -204,4 +205,5 @@ export const taskotterConsoleFixture: ConsoleData = {
         "Runner setup waits for contract and gateway compatibility fixtures.",
     },
   ],
+  demoReviewControlSeed,
 };
