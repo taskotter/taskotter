@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use utoipa::ToSchema;
@@ -87,6 +89,23 @@ pub enum ReviewTelemetryError {
     MissingDecisionBeforeDone,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ReviewTelemetryScope {
+    working_group_id: String,
+    task_id: String,
+    reviewer_ref: String,
+}
+
+#[derive(Debug, Default)]
+struct ReviewTelemetryScopeState {
+    open_review_started_at: Option<u64>,
+    human_review_seconds: u64,
+    completed_agent_tasks: u64,
+    rework_loops: u64,
+    missing_stop_events: u64,
+    has_decision_since_start: bool,
+}
+
 pub fn calculate_review_time_metrics(
     request: &ReviewTelemetryEvaluationRequest,
 ) -> Result<ReviewTimeMetrics, ReviewTelemetryError> {
@@ -104,47 +123,57 @@ pub fn calculate_review_time_metrics(
         .collect::<Result<Vec<_>, ReviewTelemetryError>>()?;
     events.sort_by_key(|(occurred_at, _)| *occurred_at);
 
-    let mut open_review_started_at = None;
-    let mut human_review_seconds = 0u64;
-    let mut completed_agent_tasks = 0u64;
-    let mut rework_loops = 0u64;
-    let mut missing_stop_events = 0u64;
-    let mut has_decision_since_start = false;
+    let mut scopes = HashMap::<ReviewTelemetryScope, ReviewTelemetryScopeState>::new();
 
     for (occurred_at, event) in events {
+        let scope = ReviewTelemetryScope {
+            working_group_id: event.working_group_id.clone(),
+            task_id: event.task_id.clone(),
+            reviewer_ref: event.reviewer_ref.clone(),
+        };
+        let state = scopes.entry(scope).or_default();
         match event.event {
             ReviewTelemetryEventKind::ReviewStarted => {
-                if open_review_started_at.is_some() {
-                    missing_stop_events += 1;
+                if state.open_review_started_at.is_some() {
+                    state.missing_stop_events += 1;
                 }
-                open_review_started_at = Some(occurred_at);
-                has_decision_since_start = false;
+                state.open_review_started_at = Some(occurred_at);
+                state.has_decision_since_start = false;
             }
             ReviewTelemetryEventKind::ReviewStopped => {
-                if let Some(started_at) = open_review_started_at.take() {
-                    human_review_seconds += occurred_at.saturating_sub(started_at);
+                if let Some(started_at) = state.open_review_started_at.take() {
+                    state.human_review_seconds += occurred_at.saturating_sub(started_at);
                 }
             }
             ReviewTelemetryEventKind::DecisionMade => {
-                has_decision_since_start = true;
+                state.has_decision_since_start = true;
             }
             ReviewTelemetryEventKind::ReworkRequested => {
-                rework_loops += 1;
-                has_decision_since_start = true;
+                state.rework_loops += 1;
+                state.has_decision_since_start = true;
             }
             ReviewTelemetryEventKind::DoneApproved => {
-                if !has_decision_since_start {
+                if !state.has_decision_since_start {
                     return Err(ReviewTelemetryError::MissingDecisionBeforeDone);
                 }
-                completed_agent_tasks += 1;
+                state.completed_agent_tasks += 1;
             }
             ReviewTelemetryEventKind::PacketOpened
             | ReviewTelemetryEventKind::ChecklistReviewed => {}
         }
     }
 
-    if open_review_started_at.is_some() {
-        missing_stop_events += 1;
+    let mut human_review_seconds = 0u64;
+    let mut completed_agent_tasks = 0u64;
+    let mut rework_loops = 0u64;
+    let mut missing_stop_events = 0u64;
+
+    for state in scopes.values() {
+        human_review_seconds += state.human_review_seconds;
+        completed_agent_tasks += state.completed_agent_tasks;
+        rework_loops += state.rework_loops;
+        missing_stop_events +=
+            state.missing_stop_events + u64::from(state.open_review_started_at.is_some());
     }
 
     let human_review_minutes = human_review_seconds.div_ceil(60);
@@ -314,14 +343,28 @@ mod tests {
     use super::*;
 
     fn event(kind: ReviewTelemetryEventKind, occurred_at: &str) -> ReviewTelemetryEventV1 {
+        event_for(
+            kind,
+            occurred_at,
+            "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+            "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        )
+    }
+
+    fn event_for(
+        kind: ReviewTelemetryEventKind,
+        occurred_at: &str,
+        task_id: &str,
+        reviewer_ref: &str,
+    ) -> ReviewTelemetryEventV1 {
         ReviewTelemetryEventV1 {
             id: "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP".to_owned(),
             r#type: "telemetry.review_time.recorded".to_owned(),
             version: "0.1.0".to_owned(),
             occurred_at: occurred_at.to_owned(),
             working_group_id: "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP".to_owned(),
-            task_id: "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EP".to_owned(),
-            reviewer_ref: "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP".to_owned(),
+            task_id: task_id.to_owned(),
+            reviewer_ref: reviewer_ref.to_owned(),
             event: kind,
         }
     }
@@ -456,6 +499,101 @@ mod tests {
             Some(38)
         );
         Ok(())
+    }
+
+    #[test]
+    fn interleaved_tasks_are_calculated_in_separate_scopes() -> Result<(), ReviewTelemetryError> {
+        let task_a = "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EA";
+        let task_b = "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EB";
+        let reviewer = "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP";
+        let metrics = calculate(vec![
+            event_for(
+                ReviewTelemetryEventKind::ReviewStarted,
+                "2026-06-01T00:00:00Z",
+                task_a,
+                reviewer,
+            ),
+            event_for(
+                ReviewTelemetryEventKind::ReviewStarted,
+                "2026-06-01T00:01:00Z",
+                task_b,
+                reviewer,
+            ),
+            event_for(
+                ReviewTelemetryEventKind::DecisionMade,
+                "2026-06-01T00:05:00Z",
+                task_a,
+                reviewer,
+            ),
+            event_for(
+                ReviewTelemetryEventKind::DoneApproved,
+                "2026-06-01T00:06:00Z",
+                task_a,
+                reviewer,
+            ),
+            event_for(
+                ReviewTelemetryEventKind::ReviewStopped,
+                "2026-06-01T00:06:00Z",
+                task_a,
+                reviewer,
+            ),
+            event_for(
+                ReviewTelemetryEventKind::DecisionMade,
+                "2026-06-01T00:09:00Z",
+                task_b,
+                reviewer,
+            ),
+            event_for(
+                ReviewTelemetryEventKind::DoneApproved,
+                "2026-06-01T00:11:00Z",
+                task_b,
+                reviewer,
+            ),
+            event_for(
+                ReviewTelemetryEventKind::ReviewStopped,
+                "2026-06-01T00:11:00Z",
+                task_b,
+                reviewer,
+            ),
+        ])?;
+
+        assert_eq!(metrics.completed_agent_tasks, 2);
+        assert_eq!(metrics.human_review_minutes, 16);
+        assert_eq!(metrics.human_minutes_per_completed_agent_task, Some(8));
+        assert_eq!(metrics.missing_stop_events, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn decision_and_done_must_match_the_same_task_scope() {
+        let task_a = "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EA";
+        let task_b = "task_01J9Z4P4BS0M9P2QJ6T8Z6W2EB";
+        let reviewer = "usr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP";
+        let result = calculate_review_time_metrics(&ReviewTelemetryEvaluationRequest {
+            events: vec![
+                event_for(
+                    ReviewTelemetryEventKind::ReviewStarted,
+                    "2026-06-01T00:00:00Z",
+                    task_a,
+                    reviewer,
+                ),
+                event_for(
+                    ReviewTelemetryEventKind::DecisionMade,
+                    "2026-06-01T00:01:00Z",
+                    task_a,
+                    reviewer,
+                ),
+                event_for(
+                    ReviewTelemetryEventKind::DoneApproved,
+                    "2026-06-01T00:02:00Z",
+                    task_b,
+                    reviewer,
+                ),
+            ],
+            baseline: None,
+        });
+
+        assert_eq!(result, Err(ReviewTelemetryError::MissingDecisionBeforeDone));
     }
 
     #[test]

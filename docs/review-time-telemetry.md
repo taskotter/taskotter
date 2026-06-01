@@ -2,6 +2,8 @@
 
 TaskOtter prototype review-time telemetry measures `human minutes per completed agent task` for internal evaluation of the review control workflow.
 
+The runtime exposes `POST /v1/review-time/evaluate` only as an internal prototype evaluator. It is intentionally omitted from the canonical OpenAPI artifact and generated API client until the contract graduates from prototype evaluation.
+
 ## Events
 
 The scaffold records these coarse workflow events through `ReviewTelemetryEventV1`:
@@ -14,7 +16,7 @@ The scaffold records these coarse workflow events through `ReviewTelemetryEventV
 - `rework_requested`
 - `done_approved`
 
-The calculation sorts events by `occurred_at`, sums closed review start/stop intervals, counts `done_approved` events as completed agent tasks, and counts `rework_requested` events as rework loops. Open review intervals are reported as `missing_stop_events` and are not converted into minutes.
+The calculation sorts events by `occurred_at`, partitions state by `(working_group_id, task_id, reviewer_ref)`, sums closed review start/stop intervals, counts `done_approved` events as completed agent tasks, and counts `rework_requested` events as rework loops. Open review intervals are reported as `missing_stop_events` and are not converted into minutes.
 
 ## Baseline
 

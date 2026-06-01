@@ -36,9 +36,7 @@ use crate::{
         PolicyEvaluator,
     },
     review_time::{
-        ReviewBaselineComparison, ReviewBaselineSource, ReviewTelemetryEvaluationRequest,
-        ReviewTelemetryEventKind, ReviewTelemetryEventV1, ReviewTimeMetrics,
-        calculate_review_time_metrics,
+        ReviewTelemetryEvaluationRequest, ReviewTimeMetrics, calculate_review_time_metrics,
     },
     usage::{
         CostReconciliationStatus, MeteringUnit, QuotaEnforcement, RemoteUsageReportV1,
@@ -169,6 +167,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/usage/evaluate", post(evaluate_usage))
         .route("/v1/usage/events", post(create_usage_event))
         .route("/v1/remote/usage-reports", post(create_remote_usage_report))
+        // Internal-only prototype evaluator. It is intentionally omitted from
+        // ApiDoc/canonical OpenAPI until the review-time contract graduates.
         .route("/v1/review-time/evaluate", post(evaluate_review_time))
         .route("/v1/audit/events", post(create_audit_event))
         .route(
@@ -659,7 +659,6 @@ impl IntoResponse for ApiError {
         evaluate_usage,
         create_usage_event,
         create_remote_usage_report,
-        evaluate_review_time,
         create_audit_event,
         create_run_timeline_event,
         create_operations_audit_event,
@@ -701,12 +700,6 @@ impl IntoResponse for ApiError {
         PolicyActorRef,
         RedactionClassification,
         RegistryEntry,
-        ReviewBaselineComparison,
-        ReviewBaselineSource,
-        ReviewTelemetryEvaluationRequest,
-        ReviewTelemetryEventKind,
-        ReviewTelemetryEventV1,
-        ReviewTimeMetrics,
         RoleBinding,
         RemoteUsageReportV1,
         RunTimelineEventV1,
@@ -854,7 +847,7 @@ mod tests {
         assert!(document["paths"]["/v1/usage/evaluate"].is_object());
         assert!(document["paths"]["/v1/usage/events"].is_object());
         assert!(document["paths"]["/v1/remote/usage-reports"].is_object());
-        assert!(document["paths"]["/v1/review-time/evaluate"].is_object());
+        assert!(document["paths"]["/v1/review-time/evaluate"].is_null());
         assert!(document["paths"]["/v1/audit/events"].is_object());
         assert!(document["paths"]["/v1/operations/timeline/events"].is_object());
         assert!(document["paths"]["/v1/operations/audit/events"].is_object());
