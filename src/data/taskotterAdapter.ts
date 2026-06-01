@@ -17,13 +17,35 @@ import type {
   WorkingGroup,
 } from "./contracts";
 import { createI18n, resolveLocalePreferences } from "../i18n";
+import type { LocalePreferences } from "../i18n";
 import { taskotterConsoleFixture } from "./taskotterFixtures";
 
 type I18n = ReturnType<typeof createI18n>;
+const localePreferenceStorageKey = "taskotter.localePreferences";
+
+function readStoredLocalePreferences(): Partial<LocalePreferences> {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const stored = window.localStorage.getItem(localePreferenceStorageKey);
+    if (!stored) return {};
+    const parsed = JSON.parse(stored);
+    if (typeof parsed !== "object" || parsed === null) return {};
+
+    return parsed as Partial<LocalePreferences>;
+  } catch {
+    return {};
+  }
+}
 
 export class FixtureTaskOtterDataAdapter implements TaskOtterDataAdapter {
   async getConsoleData(): Promise<ConsoleData> {
-    return structuredClone(taskotterConsoleFixture);
+    const data = structuredClone(taskotterConsoleFixture);
+    data.localePreferences = {
+      ...data.localePreferences,
+      ...readStoredLocalePreferences(),
+    };
+    return data;
   }
 }
 

@@ -103,3 +103,39 @@ test("issue row metadata chips stay visible inside the workspace", async ({
     chipsInsideSurface: true,
   });
 });
+
+test("pseudo locale renders system copy while preserving user-authored issue content", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "taskotter.localePreferences",
+      JSON.stringify({ userLanguage: "en-XA" }),
+    );
+  });
+
+  await page.goto("/");
+
+  await expect(
+    page.getByRole("main", { name: /\[!! Ïssüë õpëràtïõns !!\]/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: /\[!! Wõrkïng Grõüp sëtüp pàth !!\]/,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /\[!! Àgënt rün prõgrëss !!\]/ }),
+  ).toBeVisible();
+
+  await expect(
+    page.getByRole("heading", {
+      name: "Build MVP app shell, issue workspace, and focus panel UI",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Use the UX/IA design comment and QA gate as the implementation source. Keep API contracts replaceable until BOG-425 lands.",
+    ),
+  ).toBeVisible();
+});
