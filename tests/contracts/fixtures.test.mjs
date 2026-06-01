@@ -388,6 +388,135 @@ test("workflow schema rejects raw credential-shaped step inputs", async () => {
   );
 });
 
+test("redaction fixture corpus covers required synthetic secret shapes", async () => {
+  const corpus = await readJson(
+    "contracts/fixtures/redaction-secret-corpus.json",
+  );
+  const requiredKinds = [
+    "api_key",
+    "token",
+    "cookie",
+    "private_key",
+    "signed_url",
+    "authorization_header",
+    "multiline_log",
+  ];
+  const kinds = new Set(corpus.secret_shaped_cases.map((entry) => entry.kind));
+
+  assert.equal(
+    corpus.schema_version,
+    "redaction-secret-corpus@0.1.0",
+    "corpus version must be explicit",
+  );
+  for (const kind of requiredKinds) {
+    assert.ok(kinds.has(kind), `${kind} fixture case is required`);
+  }
+  assert.ok(
+    corpus.false_positive_controls.length > 0,
+    "false-positive controls are required",
+  );
+  assert.ok(
+    corpus.secret_shaped_cases.every((entry) =>
+      entry.surfaces.every((surface) =>
+        [
+          "artifact",
+          "contract",
+          "diagnostic",
+          "error",
+          "operations_audit",
+        ].includes(surface),
+      ),
+    ),
+    "corpus must only reference repo-local regression surfaces",
+  );
+});
+
+test("redaction fixture corpus is rejected by existing contract boundaries", async () => {
+  const corpus = await readJson(
+    "contracts/fixtures/redaction-secret-corpus.json",
+  );
+  const usageSchema = await readJson(
+    "contracts/schemas/usage-event.schema.json",
+  );
+  const workflowSchema = await readJson(
+    "contracts/schemas/workflow-definition.schema.json",
+  );
+  const deniedUsage = await readJson(
+    "contracts/fixtures/usage-event.high-risk-runtime-denied.json",
+  );
+  const workflow = await readJson(
+    "contracts/fixtures/workflow-definition.automation-contract.json",
+  );
+
+  for (const secretCase of corpus.secret_shaped_cases) {
+    if (!secretCase.surfaces.includes("contract")) continue;
+
+    const unsafeReason = JSON.parse(JSON.stringify(deniedUsage));
+    unsafeReason.denial_reason = secretCase.value;
+    assert.throws(
+      () => validate(usageSchema, unsafeReason),
+      /denial_reason/,
+      `${secretCase.id} must be rejected from usage denial_reason`,
+    );
+
+    const workflowInputKeys = {
+      api_key: "api_key",
+      token: "access_token",
+      private_key: "private_key",
+      signed_url: "fixture_value",
+    };
+    const workflowInputKey = workflowInputKeys[secretCase.kind];
+    if (workflowInputKey) {
+      const unsafeInput = JSON.parse(JSON.stringify(workflow));
+      unsafeInput.jobs[0].steps[0].with = {
+        ...unsafeInput.jobs[0].steps[0].with,
+        [workflowInputKey]: secretCase.value,
+      };
+      assert.throws(
+        () => validate(workflowSchema, unsafeInput),
+        /with|inputs/,
+        `${secretCase.id} must be rejected from workflow step inputs`,
+      );
+    }
+  }
+
+  const safeWorkflowInput = JSON.parse(JSON.stringify(workflow));
+  safeWorkflowInput.jobs[0].steps[0].with = {
+    ...safeWorkflowInput.jobs[0].steps[0].with,
+    metering_unit: "token",
+  };
+  validate(workflowSchema, safeWorkflowInput);
+});
+
+test("usage event schema rejects mixed-case signed URL markers under maxLength", async () => {
+  const usageSchema = await readJson(
+    "contracts/schemas/usage-event.schema.json",
+  );
+  const deniedUsage = await readJson(
+    "contracts/fixtures/usage-event.high-risk-runtime-denied.json",
+  );
+  const signedUrlMarkers = [
+    "X-Amz-Signature=fixture",
+    "X-Goog-Signature=fixture",
+    "Signature=fixture",
+  ];
+
+  for (const marker of signedUrlMarkers) {
+    assert.ok(
+      marker.length <= usageSchema.$defs.safeOpaqueRef.maxLength,
+      `${marker} must stay under maxLength to prove marker rejection`,
+    );
+
+    const unsafeReason = JSON.parse(JSON.stringify(deniedUsage));
+    unsafeReason.denial_reason = marker;
+    assert.throws(
+      () => validate(usageSchema, unsafeReason),
+      /denial_reason/,
+      `${marker} must be rejected by signed URL marker pattern`,
+    );
+  }
+});
+
 test("workflow semantic validation requires protected approval gates", async () => {
   const schema = await readJson(
     "contracts/schemas/workflow-definition.schema.json",

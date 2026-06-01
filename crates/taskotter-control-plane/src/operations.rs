@@ -571,6 +571,9 @@ fn reject_sensitive_pattern(
         "-----begin",
         "authorization:",
         "cookie:",
+        "x-amz-signature",
+        "x-goog-signature",
+        "signature=",
         "secret=",
         "token",
     ];
@@ -625,8 +628,22 @@ impl OperationsAuditAction {
 #[cfg(test)]
 mod tests {
     use crate::usage::UsageAuditEventV1;
+    use serde::Deserialize;
 
     use super::*;
+
+    #[derive(Debug, Deserialize)]
+    struct RedactionCorpus {
+        secret_shaped_cases: Vec<RedactionCorpusEntry>,
+        false_positive_controls: Vec<RedactionCorpusEntry>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct RedactionCorpusEntry {
+        id: String,
+        value: String,
+        surfaces: Vec<String>,
+    }
 
     fn envelope() -> OperationsEventEnvelope {
         OperationsEventEnvelope {
@@ -827,6 +844,46 @@ mod tests {
                 field: "occurred_at"
             })
         );
+    }
+
+    #[test]
+    fn operations_audit_rejects_redaction_fixture_corpus_secret_shapes()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let corpus: RedactionCorpus = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/redaction-secret-corpus.json"
+        ))?;
+
+        for secret_case in corpus.secret_shaped_cases.iter().filter(|entry| {
+            entry
+                .surfaces
+                .iter()
+                .any(|surface| surface == "operations_audit")
+        }) {
+            assert_eq!(
+                reject_sensitive_pattern("corpus_value", &secret_case.value),
+                Err(OperationsValidationError::SensitivePattern {
+                    field: "corpus_value"
+                }),
+                "{} must be rejected by operations audit sensitive pattern",
+                secret_case.id
+            );
+        }
+
+        for control in corpus.false_positive_controls.iter().filter(|entry| {
+            entry
+                .surfaces
+                .iter()
+                .any(|surface| surface == "operations_audit")
+        }) {
+            assert_eq!(
+                reject_sensitive_pattern("corpus_value", &control.value),
+                Ok(()),
+                "{} must remain accepted by operations audit sensitive pattern",
+                control.id
+            );
+        }
+
+        Ok(())
     }
 
     #[test]

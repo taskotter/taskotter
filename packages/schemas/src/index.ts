@@ -645,7 +645,7 @@ export const UsageEventSchema = {
       "type": "string",
       "maxLength": 80,
       "not": {
-        "pattern": "(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|bearer |password|raw[_-]?prompt|raw[_-]?log|artifact[_-]?body|-----BEGIN)"
+        "pattern": "(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|bearer |password|raw[_-]?prompt|raw[_-]?log|artifact[_-]?body|-----BEGIN|[Xx]-[Aa][Mm][Zz]-[Ss][Ii][Gg][Nn][Aa][Tt][Uu][Rr][Ee]|[Xx]-[Gg][Oo][Oo][Gg]-[Ss][Ii][Gg][Nn][Aa][Tt][Uu][Rr][Ee]|[Ss][Ii][Gg][Nn][Aa][Tt][Uu][Rr][Ee]=)"
       }
     },
     "eventId": {
@@ -1710,7 +1710,7 @@ export const WorkflowDefinitionSchema = {
         {
           "type": "string",
           "not": {
-            "pattern": "([Bb][Ee][Aa][Rr][Ee][Rr]\\s+[A-Za-z0-9._\\-]+|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_\\-]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)"
+            "pattern": "([Bb][Ee][Aa][Rr][Ee][Rr]\\s+[A-Za-z0-9._\\-]+|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_\\-]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|[Xx]-[Aa][Mm][Zz]-[Ss][Ii][Gg][Nn][Aa][Tt][Uu][Rr][Ee]=|[Xx]-[Gg][Oo][Oo][Gg]-[Ss][Ii][Gg][Nn][Aa][Tt][Uu][Rr][Ee]=|[?&][Ss][Ii][Gg][Nn][Aa][Tt][Uu][Rr][Ee]=)"
           }
         },
         {

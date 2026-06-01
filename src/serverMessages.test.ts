@@ -3,6 +3,7 @@ import {
   serverMessageTemplates,
   type ServerMessageTemplateKey,
 } from "./serverMessages";
+import redactionCorpus from "../contracts/fixtures/redaction-secret-corpus.json";
 
 describe("server message template rendering", () => {
   it("uses user preference before Working Group default for notification resources", () => {
@@ -98,5 +99,25 @@ describe("server message template rendering", () => {
         "notification.run.failed_summary" satisfies ServerMessageTemplateKey
       ];
     expect(template.redactedVariables).toEqual(["diagnosticSummary"]);
+  });
+
+  it("redacts diagnostic summaries for secret-shaped fixture corpus values", () => {
+    for (const secretCase of redactionCorpus.secret_shaped_cases) {
+      if (!secretCase.surfaces.includes("diagnostic")) continue;
+
+      const message = renderServerMessageTemplate(
+        "notification.run.failed_summary",
+        { userLanguage: "en" },
+        {
+          runId: "run_01J9Z4P4BS0M9P2QJ6T8Z6W2EA",
+          runName: "Fixture redaction run",
+          diagnosticSummary: secretCase.value,
+        },
+      );
+      const rendered = Object.values(message.parts).join("\n");
+
+      expect(rendered).toContain("redacted");
+      expect(rendered).not.toContain(secretCase.value);
+    }
   });
 });

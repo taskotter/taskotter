@@ -31,6 +31,11 @@ Policy decisions, usage events, and audit events carry `correlation_id` and `req
 
 Workflow definitions describe triggers, conditions, jobs, steps, policy checks, approval gates, retry, timeout, concurrency, and audit event references. Webhook triggers require signature verification and replay protection fields. Protected side-effect steps must reference an approval gate that is required before execution. Secrets and external credentials are represented only by `secret_ref` and `integration_ref` pointers; raw secret values do not belong in workflow YAML, fixtures, generated schema artifacts, logs, or comments.
 
+`contracts/fixtures/redaction-secret-corpus.json` contains synthetic
+secret-shaped values for regression coverage. The corpus is safe fixture data
+only; it must not be replaced with live credentials, customer data, private
+logs, or provider artifacts.
+
 ## Compatibility
 
 `contracts/compatibility-matrix.json` declares the control-plane source of truth
