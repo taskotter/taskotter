@@ -35,6 +35,10 @@ use crate::{
         BaselinePolicyEvaluator, PolicyActorRef, PolicyDecision, PolicyDecisionRequest,
         PolicyEvaluator,
     },
+    runner::{
+        RunnerCapability, RunnerControlPlaneFlags, RunnerDispatchDecision,
+        RunnerDispatchDiagnostic, RunnerDispatchRequest, RunnerDispatchStatus,
+    },
     usage::{
         CostReconciliationStatus, MeteringUnit, QuotaEnforcement, RemoteUsageReportV1,
         ReservationStatus, UsageActorRef, UsageAuditEventV1, UsageEvaluation,
@@ -48,6 +52,7 @@ use crate::{
 pub struct AppState {
     store: Arc<Mutex<Store>>,
     policy_evaluator: Arc<BaselinePolicyEvaluator>,
+    runner_control_plane_flags: Arc<RunnerControlPlaneFlags>,
 }
 
 #[derive(Debug, Default)]
@@ -66,6 +71,7 @@ struct Store {
     usage_reservations: Vec<UsageReservation>,
     usage_security_signals: Vec<UsageSecuritySignal>,
     remote_usage_reports: Vec<RemoteUsageReportV1>,
+    runner_dispatch_decisions: Vec<RunnerDispatchDecision>,
     run_timeline_events: Vec<RunTimelineEventV1>,
     operations_audit_events: Vec<OperationsAuditEventV1>,
     operations_health_events: Vec<OperationsHealthEventV1>,
@@ -164,6 +170,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/usage/evaluate", post(evaluate_usage))
         .route("/v1/usage/events", post(create_usage_event))
         .route("/v1/remote/usage-reports", post(create_remote_usage_report))
+        .route("/v1/runner/dispatch", post(dispatch_runner_job))
         .route("/v1/audit/events", post(create_audit_event))
         .route(
             "/v1/operations/timeline/events",
@@ -420,6 +427,31 @@ async fn create_remote_usage_report(
 
 #[utoipa::path(
     post,
+    path = "/v1/runner/dispatch",
+    request_body = RunnerDispatchRequest,
+    responses((status = 200, body = RunnerDispatchDecision), (status = 400, body = ErrorResponse))
+)]
+async fn dispatch_runner_job(
+    State(state): State<AppState>,
+    SafeJson(request): SafeJson<RunnerDispatchRequest>,
+) -> Result<Json<RunnerDispatchDecision>, ApiError> {
+    require_non_empty("working_group_id", &request.working_group_id)?;
+    require_non_empty("run_id", &request.run_id)?;
+    require_non_empty("runner_id", &request.runner_id)?;
+
+    let decision = request.evaluate_for_dispatch(&state.runner_control_plane_flags);
+    state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal())?
+        .runner_dispatch_decisions
+        .push(decision.clone());
+
+    Ok(Json(decision))
+}
+
+#[utoipa::path(
+    post,
     path = "/v1/audit/events",
     request_body = CreateAuditEventRequest,
     responses((status = 201, body = AuditEvent), (status = 400, body = ErrorResponse))
@@ -639,6 +671,7 @@ impl IntoResponse for ApiError {
         evaluate_usage,
         create_usage_event,
         create_remote_usage_report,
+        dispatch_runner_job,
         create_audit_event,
         create_run_timeline_event,
         create_operations_audit_event,
@@ -680,6 +713,11 @@ impl IntoResponse for ApiError {
         PolicyActorRef,
         RedactionClassification,
         RegistryEntry,
+        RunnerCapability,
+        RunnerDispatchDecision,
+        RunnerDispatchDiagnostic,
+        RunnerDispatchRequest,
+        RunnerDispatchStatus,
         RoleBinding,
         RemoteUsageReportV1,
         RunTimelineEventV1,
@@ -827,6 +865,7 @@ mod tests {
         assert!(document["paths"]["/v1/usage/evaluate"].is_object());
         assert!(document["paths"]["/v1/usage/events"].is_object());
         assert!(document["paths"]["/v1/remote/usage-reports"].is_object());
+        assert!(document["paths"]["/v1/runner/dispatch"].is_object());
         assert!(document["paths"]["/v1/audit/events"].is_object());
         assert!(document["paths"]["/v1/operations/timeline/events"].is_object());
         assert!(document["paths"]["/v1/operations/audit/events"].is_object());
@@ -842,6 +881,16 @@ mod tests {
         assert!(
             document["components"]["schemas"]["RunTimelineEventV1"]["properties"]["stage"]
                 .is_object()
+        );
+        assert!(
+            document["components"]["schemas"]
+                .get("RunnerControlPlaneFlags")
+                .is_none()
+        );
+        assert!(
+            document["components"]["schemas"]["RunnerDispatchRequest"]["properties"]
+                .get("control_plane_flags")
+                .is_none()
         );
         let error = &document["components"]["schemas"]["ErrorEnvelope"];
         assert!(error["properties"]["code"].is_object());
@@ -1779,5 +1828,173 @@ mod tests {
         assert_eq!(report["schema_version"], "remote_usage_report.v1");
         assert_eq!(report["status"], "succeeded");
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn runner_dispatch_defaults_to_refusal_with_audit_diagnostic_reason()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let request = json!({
+            "working_group_id": "wg_1",
+            "run_id": "run_1",
+            "runner_id": "runner_1",
+            "required_capabilities": ["local_tools"],
+            "correlation_id": "corr_1",
+            "request_id": "req_1"
+        });
+
+        let state = AppState::default();
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/runner/dispatch")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request.to_string()))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(decision["accepted"], false);
+        assert_eq!(decision["status"], "refused");
+        assert_eq!(
+            decision["diagnostic"]["reason_code"],
+            "control_plane_kill_switch_engaged"
+        );
+        assert_eq!(
+            decision["diagnostic"]["audit_event_type"],
+            "runner.dispatch.refused"
+        );
+        assert_eq!(
+            decision["diagnostic"]["feature_flag"],
+            "runner.kill_switch.engaged"
+        );
+
+        let store = state.store.lock().map_err(|_| "store lock failed")?;
+        assert_eq!(store.runner_dispatch_decisions.len(), 1);
+        assert_eq!(
+            store.runner_dispatch_decisions[0].diagnostic.reason_code,
+            "control_plane_kill_switch_engaged"
+        );
+        drop(store);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn runner_dispatch_refuses_disabled_capability_before_dispatch()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let request = json!({
+            "working_group_id": "wg_1",
+            "run_id": "run_1",
+            "runner_id": "runner_1",
+            "required_capabilities": ["computer_use"],
+            "correlation_id": "corr_1",
+            "request_id": "req_1"
+        });
+
+        let state = app_state_with_runner_flags(RunnerControlPlaneFlags {
+            kill_switch_engaged: false,
+            runner_dispatch_enabled: true,
+            ..RunnerControlPlaneFlags::default()
+        });
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/runner/dispatch")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request.to_string()))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(decision["accepted"], false);
+        assert_eq!(decision["status"], "refused");
+        assert_eq!(
+            decision["diagnostic"]["reason_code"],
+            "runner_capability_disabled"
+        );
+        assert_eq!(decision["diagnostic"]["capability"], "computer_use");
+        assert_eq!(
+            decision["diagnostic"]["feature_flag"],
+            "runner.computer_use.enabled"
+        );
+        assert_eq!(
+            decision["diagnostic"]["message_key"],
+            "runner.dispatch.refused.capability_disabled"
+        );
+
+        let store = state.store.lock().map_err(|_| "store lock failed")?;
+        assert_eq!(store.runner_dispatch_decisions.len(), 1);
+        assert!(!store.runner_dispatch_decisions[0].accepted);
+        drop(store);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn runner_dispatch_ignores_body_flag_override_and_uses_server_kill_switch()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let request = json!({
+            "working_group_id": "wg_1",
+            "run_id": "run_1",
+            "runner_id": "runner_1",
+            "required_capabilities": ["computer_use"],
+            "control_plane_flags": {
+                "kill_switch_engaged": false,
+                "runner_dispatch_enabled": true,
+                "computer_use_enabled": true
+            },
+            "correlation_id": "corr_1",
+            "request_id": "req_1"
+        });
+
+        let state = AppState::default();
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/runner/dispatch")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request.to_string()))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(decision["accepted"], false);
+        assert_eq!(decision["status"], "refused");
+        assert_eq!(
+            decision["diagnostic"]["reason_code"],
+            "control_plane_kill_switch_engaged"
+        );
+        assert_eq!(
+            decision["diagnostic"]["feature_flag"],
+            "runner.kill_switch.engaged"
+        );
+
+        let store = state.store.lock().map_err(|_| "store lock failed")?;
+        assert_eq!(store.runner_dispatch_decisions.len(), 1);
+        assert_eq!(
+            store.runner_dispatch_decisions[0].diagnostic.reason_code,
+            "control_plane_kill_switch_engaged"
+        );
+        drop(store);
+        Ok(())
+    }
+
+    fn app_state_with_runner_flags(
+        runner_control_plane_flags: RunnerControlPlaneFlags,
+    ) -> AppState {
+        AppState {
+            runner_control_plane_flags: Arc::new(runner_control_plane_flags),
+            ..AppState::default()
+        }
     }
 }
