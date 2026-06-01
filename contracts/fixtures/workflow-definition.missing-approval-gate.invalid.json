@@ -1,0 +1,59 @@
+{
+  "schema_version": "workflow-definition@0.1.0",
+  "workflow_id": "wfl_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "name": "Invalid missing protected approval gate fixture",
+  "status": "draft",
+  "portable_format": "yaml",
+  "service_identity": {
+    "type": "service_account",
+    "id": "svc_workflow_automation",
+    "delegation": {
+      "preserve_triggering_principal": true
+    }
+  },
+  "triggers": [
+    {
+      "id": "policy_denied_event",
+      "type": "internal_event",
+      "enabled": true,
+      "internal_event": {
+        "event_type": "policy.decision_denied"
+      }
+    }
+  ],
+  "concurrency": {
+    "scope": "workflow",
+    "limit": 1,
+    "on_conflict": "queue"
+  },
+  "approval_gates": [],
+  "jobs": [
+    {
+      "id": "invalid_missing_gate",
+      "name": "Invalid missing gate",
+      "steps": [
+        {
+          "id": "protected_step",
+          "kind": "integration_call",
+          "name": "Protected step with missing gate",
+          "approval_gate_ref": "missing_gate",
+          "side_effect": {
+            "classification": "protected",
+            "description": "External side effect must be approved first."
+          }
+        }
+      ]
+    }
+  ],
+  "audit_events": [
+    {
+      "type": "workflow.definition.validated",
+      "resource": {
+        "type": "workflow",
+        "id": "wfl_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "when": "validation"
+    }
+  ]
+}

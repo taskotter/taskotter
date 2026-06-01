@@ -1,0 +1,19 @@
+{
+  "control_plane": {
+    "openapi_version": "0.1.0",
+    "event_envelope_versions": ["0.1.0"],
+    "policy_decision_versions": ["policy-decision@0.1.0"]
+  },
+  "remote": {
+    "minimum_version": "0.1.0",
+    "recommended_version": "0.1.0",
+    "supported_protocol_versions": ["remote.v1alpha1"],
+    "fixture_protocol": "remote.v1alpha1"
+  },
+  "gateway": {
+    "minimum_version": "0.1.0",
+    "recommended_version": "0.1.0",
+    "supported_protocol_versions": ["gateway.v0.1"],
+    "fixture_protocol": "gateway.v0.1"
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.taskotter.dev/audit-event.schema.json",
+  "title": "TaskOtterAuditEvent",
+  "type": "object",
+  "required": [
+    "id",
+    "type",
+    "version",
+    "occurred_at",
+    "source",
+    "working_group_id",
+    "actor",
+    "resource",
+    "correlation_id",
+    "request_id",
+    "policy_decision_id",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "type": {
+      "const": "audit.policy_decision.denied"
+    },
+    "version": {
+      "const": "0.1.0"
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "control_plane",
+        "runner",
+        "gateway"
+      ]
+    },
+    "working_group_id": {
+      "type": "string",
+      "pattern": "^wg_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "actor": {
+      "$ref": "#/$defs/actorRef"
+    },
+    "resource": {
+      "$ref": "#/$defs/resourceRef"
+    },
+    "correlation_id": {
+      "type": "string",
+      "pattern": "^corr_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "policy_decision_id": {
+      "type": "string",
+      "pattern": "^poldec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "action",
+        "outcome"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "allowed",
+            "denied",
+            "succeeded",
+            "failed"
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "actorRef": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "user",
+            "agent",
+            "service"
+          ]
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "resourceRef": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
