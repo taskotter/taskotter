@@ -1,0 +1,68 @@
+{
+  "schema_version": "workflow-definition@0.1.0",
+  "workflow_id": "wfl_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "name": "Invalid wrong protected approval gate fixture",
+  "status": "draft",
+  "portable_format": "yaml",
+  "service_identity": {
+    "type": "service_account",
+    "id": "svc_workflow_automation",
+    "delegation": {
+      "preserve_triggering_principal": true
+    }
+  },
+  "triggers": [
+    {
+      "id": "policy_denied_event",
+      "type": "internal_event",
+      "enabled": true,
+      "internal_event": {
+        "event_type": "policy.decision_denied"
+      }
+    }
+  ],
+  "concurrency": {
+    "scope": "workflow",
+    "limit": 1,
+    "on_conflict": "queue"
+  },
+  "approval_gates": [
+    {
+      "id": "manual_review_gate",
+      "approver_scope": "working_group_admin",
+      "required_before": "manual_review",
+      "timeout_seconds": 86400,
+      "on_timeout": "deny",
+      "reason": "This gate is not valid for protected side effects."
+    }
+  ],
+  "jobs": [
+    {
+      "id": "invalid_wrong_gate",
+      "name": "Invalid wrong gate",
+      "steps": [
+        {
+          "id": "protected_step",
+          "kind": "integration_call",
+          "name": "Protected step with manual-review gate",
+          "approval_gate_ref": "manual_review_gate",
+          "side_effect": {
+            "classification": "protected",
+            "description": "External side effect must be approved first."
+          }
+        }
+      ]
+    }
+  ],
+  "audit_events": [
+    {
+      "type": "workflow.definition.validated",
+      "resource": {
+        "type": "workflow",
+        "id": "wfl_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+      },
+      "when": "validation"
+    }
+  ]
+}

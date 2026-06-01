@@ -1099,7 +1099,9 @@ export const WorkflowDefinitionSchema = {
         "required_before": {
           "type": "string",
           "enum": [
-            "protected_side_effect"
+            "protected_side_effect",
+            "workflow_activation",
+            "manual_review"
           ]
         },
         "timeout_seconds": {

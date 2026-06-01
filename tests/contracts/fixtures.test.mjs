@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
+import { validateWorkflowSemantics } from "./workflowSemanticValidation.mjs";
 
 const root = process.cwd();
 
@@ -261,6 +262,7 @@ test("workflow contract captures automation safety requirements", async () => {
       `${step.id} approval gate must exist`,
     );
   }
+  validateWorkflowSemantics(workflow);
 });
 
 test("workflow fixtures only carry secret and integration references", async () => {
@@ -296,6 +298,28 @@ test("workflow schema rejects raw credential-shaped step inputs", async () => {
     () => validate(schema, invalidWorkflow),
     /access_token property name/,
   );
+});
+
+test("workflow semantic validation requires protected approval gates", async () => {
+  const schema = await readJson(
+    "contracts/schemas/workflow-definition.schema.json",
+  );
+  const cases = [
+    [
+      "contracts/fixtures/workflow-definition.missing-approval-gate.invalid.json",
+      /approval_gate_ref must reference an approval gate/,
+    ],
+    [
+      "contracts/fixtures/workflow-definition.wrong-approval-gate.invalid.json",
+      /approval gate must be required before protected_side_effect/,
+    ],
+  ];
+
+  for (const [fixturePath, expectedError] of cases) {
+    const workflow = await readJson(fixturePath);
+    validate(schema, workflow);
+    assert.throws(() => validateWorkflowSemantics(workflow), expectedError);
+  }
 });
 
 test("generated schema artifacts mirror canonical schema sources", async () => {
