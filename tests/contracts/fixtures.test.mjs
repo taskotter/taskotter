@@ -171,7 +171,9 @@ function validate(
   }
   if (schema.allOf) {
     for (const childSchema of schema.allOf) {
-      if (childSchema.if && schemaMatches(root, childSchema.if, value)) {
+      if (!childSchema.if) {
+        validate(resolveRef(root, childSchema), value, location, root);
+      } else if (schemaMatches(root, childSchema.if, value)) {
         validate(childSchema.then, value, location, root);
       }
     }
@@ -219,6 +221,10 @@ test("runtime fixtures match their canonical schemas", async () => {
       "contracts/fixtures/usage-event.high-risk-runtime-denied.json",
     ],
     [
+      "contracts/schemas/usage-event.schema.json",
+      "contracts/fixtures/usage-event.runner-job-settled.json",
+    ],
+    [
       "contracts/schemas/audit-event.schema.json",
       "contracts/fixtures/audit-event.high-risk-runtime-denied.json",
     ],
@@ -252,9 +258,55 @@ test("high-risk runtime fixtures stay deny-by-default and metered by capability"
   assert.equal(gate.feature_flag, "gateway.hosted_mcp_billing.enabled");
   assert.equal(usage.payload.measurements.runtime_capability, gate.capability);
   assert.equal(usage.payload.measurements.metering_unit, gate.metering_unit);
+  assert.equal(usage.status, "denied");
+  assert.equal(usage.denial_reason, "protected_capability_disabled");
   assert.equal(audit.payload.runtime_capability, gate.capability);
   assert.equal(audit.payload.feature_flag, gate.feature_flag);
   assert.equal(audit.policy_decision_id, decision.decision_id);
+});
+
+test("usage event schema captures settlement and safe-reference contract", async () => {
+  const schema = await readJson("contracts/schemas/usage-event.schema.json");
+  const runnerUsage = await readJson(
+    "contracts/fixtures/usage-event.runner-job-settled.json",
+  );
+
+  validate(schema, runnerUsage);
+  assert.equal(runnerUsage.payload.subject.type, "runner_job");
+  assert.equal(runnerUsage.status, "succeeded");
+  assert.match(runnerUsage.reservation_id, /^resv_/);
+  assert.equal(runnerUsage.payload.measurements.actual_cost_micros, 3900);
+
+  const properties = schema.properties;
+  assert.ok(properties.reservation_id, "reservation_id must be in schema");
+  assert.ok(properties.status, "status must be in schema");
+  assert.ok(properties.denial_reason, "denial_reason must be in schema");
+  assert.ok(
+    schema.$defs.usageSubjectRef.properties.type.enum.includes("runner_job"),
+    "runner_job subject must be supported",
+  );
+  assert.equal(schema.$defs.safeOpaqueRef.maxLength, 80);
+  assert.match(schema.$defs.idempotencyKey.pattern, /^\^usage_/);
+});
+
+test("usage event schema rejects unsafe denied and reference shapes", async () => {
+  const schema = await readJson("contracts/schemas/usage-event.schema.json");
+  const deniedUsage = await readJson(
+    "contracts/fixtures/usage-event.high-risk-runtime-denied.json",
+  );
+  const unsafeReason = JSON.parse(JSON.stringify(deniedUsage));
+  unsafeReason.denial_reason = "raw_prompt: bearer token";
+  assert.throws(() => validate(schema, unsafeReason), /denial_reason/);
+
+  const badIdempotency = JSON.parse(JSON.stringify(deniedUsage));
+  badIdempotency.idempotency_key = "usage_access_token_body";
+  assert.throws(() => validate(schema, badIdempotency), /idempotency_key/);
+
+  const badRunnerRef = await readJson(
+    "contracts/fixtures/usage-event.runner-job-settled.json",
+  );
+  badRunnerRef.payload.subject.id = "gwreq_01J9Z4P4BS0M9P2QJ6T8Z6W2ER";
+  assert.throws(() => validate(schema, badRunnerRef), /payload.subject.id/);
 });
 
 test("workflow contract captures automation safety requirements", async () => {

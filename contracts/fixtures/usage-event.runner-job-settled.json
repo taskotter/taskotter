@@ -1,0 +1,37 @@
+{
+  "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2ER",
+  "type": "usage.gateway_request.recorded",
+  "version": "0.1.0",
+  "occurred_at": "2026-01-01T00:00:02.000Z",
+  "source": "runner",
+  "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2ER",
+  "actor": {
+    "type": "service",
+    "id": "svc_01J9Z4P4BS0M9P2QJ6T8Z6W2ER"
+  },
+  "resource": {
+    "type": "runner",
+    "id": "runr_01J9Z4P4BS0M9P2QJ6T8Z6W2ER"
+  },
+  "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2ER",
+  "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2ER",
+  "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2ER",
+  "idempotency_key": "usage_01J9Z4P4BS0M9P2QJ6T8Z6W2ER",
+  "reservation_id": "resv_01J9Z4P4BS0M9P2QJ6T8Z6W2ER",
+  "status": "succeeded",
+  "payload": {
+    "subject": {
+      "type": "runner_job",
+      "id": "job_01J9Z4P4BS0M9P2QJ6T8Z6W2ER"
+    },
+    "measurements": {
+      "duration_ms": 1250,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "tool_invocations": 2,
+      "estimated_cost_micros": 4100,
+      "actual_cost_micros": 3900,
+      "metering_unit": "local_compute_ms"
+    }
+  }
+}
