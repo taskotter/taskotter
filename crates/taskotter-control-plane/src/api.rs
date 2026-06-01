@@ -20,7 +20,12 @@ use crate::{
         WorkingGroupId,
     },
     policy::{BaselinePolicyEvaluator, PolicyDecision, PolicyDecisionRequest, PolicyEvaluator},
-    usage::{RemoteUsageReportV1, UsageAuditEventV1, UsageEvaluation, UsageEvaluationRequest},
+    usage::{
+        CostReconciliationStatus, MeteringUnit, QuotaEnforcement, RemoteUsageReportV1,
+        ReservationStatus, UsageActorRef, UsageAuditEventV1, UsageEvaluation,
+        UsageEvaluationRequest, UsageEventPayload, UsageLedgerEntry, UsageMeasurements,
+        UsageReservation, UsageResourceRef, UsageSourceSurface, UsageSubjectRef,
+    },
 };
 
 #[derive(Clone, Default)]
@@ -37,6 +42,8 @@ struct Store {
     registry_entries: Vec<RegistryEntry>,
     audit_events: Vec<AuditEvent>,
     usage_events: Vec<UsageAuditEventV1>,
+    usage_ledger_entries: Vec<UsageLedgerEntry>,
+    usage_reservations: Vec<UsageReservation>,
     remote_usage_reports: Vec<RemoteUsageReportV1>,
 }
 
@@ -229,15 +236,33 @@ async fn create_usage_event(
     State(state): State<AppState>,
     Json(event): Json<UsageAuditEventV1>,
 ) -> Result<(StatusCode, Json<UsageAuditEventV1>), ApiError> {
-    require_schema_version("usage_audit_event.v1", &event.schema_version)?;
-    require_non_empty("decision_id", &event.decision_id)?;
+    let ledger_entry = event
+        .to_ledger_entry()
+        .map_err(|error| ApiError::bad_request(error.to_string()))?;
 
-    state
-        .store
-        .lock()
-        .map_err(|_| ApiError::internal())?
+    let mut store = state.store.lock().map_err(|_| ApiError::internal())?;
+    if let Some(existing) = store
         .usage_events
-        .push(event.clone());
+        .iter()
+        .find(|stored| stored.idempotency_key == event.idempotency_key)
+        .cloned()
+    {
+        return Ok((StatusCode::ACCEPTED, Json(existing)));
+    }
+
+    if let Some(reservation_id) = &event.reservation_id {
+        store.usage_reservations.push(UsageReservation::open(
+            reservation_id.clone(),
+            event.working_group_id.clone(),
+            event.policy_decision_id.clone(),
+            event.idempotency_key.clone(),
+            ledger_entry.metered_quantity,
+            ledger_entry.metering_unit.clone(),
+            ledger_entry.estimated_cost_micros,
+        ));
+    }
+    store.usage_ledger_entries.push(ledger_entry);
+    store.usage_events.push(event.clone());
 
     Ok((StatusCode::ACCEPTED, Json(event)))
 }
@@ -379,9 +404,21 @@ impl IntoResponse for ApiError {
         PolicyDecisionRequest,
         RegistryEntry,
         RemoteUsageReportV1,
+        CostReconciliationStatus,
+        MeteringUnit,
+        QuotaEnforcement,
+        ReservationStatus,
+        UsageActorRef,
         UsageAuditEventV1,
         UsageEvaluation,
         UsageEvaluationRequest,
+        UsageEventPayload,
+        UsageLedgerEntry,
+        UsageMeasurements,
+        UsageReservation,
+        UsageResourceRef,
+        UsageSourceSurface,
+        UsageSubjectRef,
         WorkingGroup
     )),
     tags(
@@ -513,34 +550,24 @@ mod tests {
         let evaluation: Value = serde_json::from_slice(&body)?;
 
         assert_eq!(evaluation["allowed"], false);
+        assert_eq!(evaluation["enforcement"], "hard_deny");
+        assert_eq!(
+            evaluation["denial_reason"],
+            "quota hard deny before dispatch: hourly-actions"
+        );
         assert_eq!(evaluation["failed_limits"], json!(["hourly-actions"]));
         Ok(())
     }
 
     #[tokio::test]
-    async fn ingests_gateway_usage_event() -> Result<(), Box<dyn std::error::Error>> {
-        let request = json!({
-            "schema_version": "usage_audit_event.v1",
-            "event_id": "018f30d5-9471-7c4c-85c4-0e14c3f76c01",
-            "request_id": "018f30d5-9471-7c4c-85c4-0e14c3f76c02",
-            "correlation_id": "corr_1",
-            "subject": {
-                "user_id": "user_1",
-                "working_group_id": "wg_1"
-            },
-            "provider": {
-                "provider_id": "provider_1",
-                "kind": "open_ai_compatible",
-                "model": "test-model"
-            },
-            "decision_id": "local-policy:ai.relay",
-            "status": "succeeded",
-            "prompt_tokens": 1,
-            "completion_tokens": 2,
-            "estimated_cost_micro_usd": 3
-        });
+    async fn ingests_gateway_usage_event_fixture_idempotently()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        let request: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/usage-event.gateway-request.json"
+        ))?;
 
-        let response = build_router(AppState::default())
+        let response = build_router(state.clone())
             .oneshot(
                 Request::builder()
                     .method("POST")
@@ -554,8 +581,124 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await?;
         let event: Value = serde_json::from_slice(&body)?;
 
-        assert_eq!(event["schema_version"], "usage_audit_event.v1");
+        assert_eq!(event["version"], "0.1.0");
+        assert_eq!(event["idempotency_key"], request["idempotency_key"]);
         assert_eq!(event["status"], "succeeded");
+
+        let duplicate = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/usage/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request.to_string()))?,
+            )
+            .await?;
+        assert_eq!(duplicate.status(), StatusCode::ACCEPTED);
+
+        let store = state.store.lock().map_err(|_| "store lock failed")?;
+        assert_eq!(store.usage_events.len(), 1);
+        assert_eq!(store.usage_ledger_entries.len(), 1);
+        assert_eq!(store.usage_ledger_entries[0].metered_quantity, 1);
+        assert_eq!(
+            store.usage_ledger_entries[0].cost_reconciliation_status,
+            CostReconciliationStatus::PendingProviderReconciliation
+        );
+        drop(store);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn rejects_denied_usage_without_reason_and_sensitive_raw_payloads()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut denied: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/usage-event.high-risk-runtime-denied.json"
+        ))?;
+        denied["status"] = json!("denied");
+
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/usage/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(denied.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let mut raw_payload: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/usage-event.gateway-request.json"
+        ))?;
+        raw_payload["payload"]["raw_prompt"] = json!("do not store me");
+
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/usage/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(raw_payload.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn rejects_usage_event_missing_attribution() -> Result<(), Box<dyn std::error::Error>> {
+        let mut request: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/usage-event.gateway-request.json"
+        ))?;
+        request["actor"]["id"] = json!("");
+
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/usage/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn usage_ledger_records_actual_cost_reconciliation()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        let mut request: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/usage-event.gateway-request.json"
+        ))?;
+        request["payload"]["measurements"]["actual_cost_micros"] = json!(2400);
+        request["payload"]["measurements"]["metering_unit"] = json!("token");
+
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/usage/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let store = state.store.lock().map_err(|_| "store lock failed")?;
+        assert_eq!(store.usage_ledger_entries.len(), 1);
+        assert_eq!(store.usage_ledger_entries[0].estimated_cost_micros, 2_300);
+        assert_eq!(
+            store.usage_ledger_entries[0].actual_cost_micros,
+            Some(2_400)
+        );
+        assert_eq!(
+            store.usage_ledger_entries[0].cost_reconciliation_status,
+            CostReconciliationStatus::Actual
+        );
+        assert_eq!(store.usage_ledger_entries[0].metered_quantity, 1_520);
+        drop(store);
         Ok(())
     }
 
