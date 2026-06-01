@@ -576,7 +576,7 @@ export const demoReviewControlSeed: DemoReviewControlSeed = {
         ],
         riskSignals: [
           {
-            code: "approval_required",
+            code: "high_risk_change",
             severity: "warning",
             message:
               "High-risk protected side effect requires manual approval.",

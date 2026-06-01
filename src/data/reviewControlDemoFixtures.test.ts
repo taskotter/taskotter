@@ -110,7 +110,10 @@ describe("review control demo seed fixtures", () => {
     });
     expect(
       highRisk?.reviewPacket.riskSignals.some(
-        (signal) => signal.code === "approval_required",
+        (signal) =>
+          signal.code === "high_risk_change" &&
+          signal.message.includes("manual approval") &&
+          signal.evidenceRefs.includes("ev_demo_105_policy_gate"),
       ),
     ).toBe(true);
     expect(highRisk?.demoAuditChainSummary).toMatchObject({

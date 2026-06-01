@@ -167,8 +167,7 @@ export interface DemoReviewPacketSignal {
     | "verification_failed"
     | "verification_blocked"
     | "high_risk_change"
-    | "rework_requested"
-    | "approval_required";
+    | "rework_requested";
   severity: DemoReviewPacketSeverity;
   message: string;
   evidenceRefs: readonly string[];
