@@ -687,6 +687,7 @@ mod tests {
             "../../../contracts/fixtures/usage-event.high-risk-runtime-denied.json"
         ))?;
         denied["status"] = json!("denied");
+        denied["denial_reason"] = Value::Null;
 
         let response = build_router(AppState::default())
             .oneshot(

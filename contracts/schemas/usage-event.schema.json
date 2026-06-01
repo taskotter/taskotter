@@ -21,8 +21,7 @@
   "additionalProperties": false,
   "properties": {
     "id": {
-      "type": "string",
-      "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+      "$ref": "#/$defs/eventId"
     },
     "type": {
       "const": "usage.gateway_request.recorded"
@@ -43,8 +42,7 @@
       ]
     },
     "working_group_id": {
-      "type": "string",
-      "pattern": "^wg_[0-9A-HJKMNP-TV-Z]{26}$"
+      "$ref": "#/$defs/workingGroupId"
     },
     "actor": {
       "$ref": "#/$defs/actorRef"
@@ -53,19 +51,25 @@
       "$ref": "#/$defs/resourceRef"
     },
     "correlation_id": {
-      "type": "string",
-      "pattern": "^corr_[0-9A-HJKMNP-TV-Z]{26}$"
+      "$ref": "#/$defs/correlationId"
     },
     "request_id": {
-      "type": "string",
-      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$"
+      "$ref": "#/$defs/requestId"
     },
     "policy_decision_id": {
-      "type": "string",
-      "pattern": "^poldec_[0-9A-HJKMNP-TV-Z]{26}$"
+      "$ref": "#/$defs/policyDecisionId"
     },
     "idempotency_key": {
-      "type": "string"
+      "$ref": "#/$defs/idempotencyKey"
+    },
+    "reservation_id": {
+      "$ref": "#/$defs/reservationId"
+    },
+    "status": {
+      "$ref": "#/$defs/usageAttemptStatus"
+    },
+    "denial_reason": {
+      "$ref": "#/$defs/denialReason"
     },
     "payload": {
       "type": "object",
@@ -76,25 +80,7 @@
       "additionalProperties": false,
       "properties": {
         "subject": {
-          "type": "object",
-          "required": [
-            "type",
-            "id"
-          ],
-          "additionalProperties": false,
-          "properties": {
-            "type": {
-              "type": "string",
-              "enum": [
-                "agent_run",
-                "gateway_request",
-                "workflow_run"
-              ]
-            },
-            "id": {
-              "type": "string"
-            }
-          }
+          "$ref": "#/$defs/usageSubjectRef"
         },
         "measurements": {
           "type": "object",
@@ -123,6 +109,10 @@
               "type": "integer",
               "minimum": 0
             },
+            "actual_cost_micros": {
+              "type": "integer",
+              "minimum": 0
+            },
             "metering_unit": {
               "$ref": "#/$defs/meteringUnit"
             },
@@ -135,6 +125,69 @@
     }
   },
   "$defs": {
+    "safeOpaqueRef": {
+      "type": "string",
+      "maxLength": 80,
+      "not": {
+        "pattern": "(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|bearer |password|raw[_-]?prompt|raw[_-]?log|artifact[_-]?body|-----BEGIN)"
+      }
+    },
+    "eventId": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      ],
+      "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "workingGroupId": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      ],
+      "pattern": "^wg_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "correlationId": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      ],
+      "pattern": "^corr_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "requestId": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      ],
+      "pattern": "^req_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "policyDecisionId": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      ],
+      "pattern": "^poldec_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "idempotencyKey": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      ],
+      "pattern": "^usage_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "reservationId": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      ],
+      "pattern": "^resv_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
     "actorRef": {
       "type": "object",
       "required": [
@@ -152,9 +205,59 @@
           ]
         },
         "id": {
-          "type": "string"
+          "$ref": "#/$defs/safeOpaqueRef"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "user"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^usr_[0-9A-HJKMNP-TV-Z]{26}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "agent"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^agt_[0-9A-HJKMNP-TV-Z]{26}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "service"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^svc_[0-9A-HJKMNP-TV-Z]{26}$"
+              }
+            }
+          }
+        }
+      ]
     },
     "resourceRef": {
       "type": "object",
@@ -165,15 +268,213 @@
       "additionalProperties": false,
       "properties": {
         "type": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "provider",
+            "mcp_server",
+            "runner",
+            "job",
+            "integration"
+          ]
         },
         "id": {
-          "type": "string"
+          "$ref": "#/$defs/safeOpaqueRef"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "provider"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^prv_[0-9A-HJKMNP-TV-Z]{26}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "mcp_server"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^mcp_[0-9A-HJKMNP-TV-Z]{26}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "runner"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^runr_[0-9A-HJKMNP-TV-Z]{26}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "job"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "integration"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^int_[0-9A-HJKMNP-TV-Z]{26}$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "usageSubjectRef": {
+      "type": "object",
+      "required": [
+        "type",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "agent_run",
+            "gateway_request",
+            "workflow_run",
+            "runner_job"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "agent_run"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "gateway_request"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^gwreq_[0-9A-HJKMNP-TV-Z]{26}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "workflow_run"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^wfrun_[0-9A-HJKMNP-TV-Z]{26}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "runner_job"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "id": {
+                "pattern": "^job_[0-9A-HJKMNP-TV-Z]{26}$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "usageAttemptStatus": {
+      "type": "string",
+      "enum": [
+        "succeeded",
+        "denied",
+        "timeout",
+        "cancelled",
+        "failed"
+      ]
+    },
+    "denialReason": {
+      "type": "string",
+      "maxLength": 80,
+      "enum": [
+        "policy_denied",
+        "usage_limit_reached",
+        "protected_capability_disabled",
+        "quota_exceeded"
+      ]
     },
     "highRiskRuntimeCapability": {
       "type": "string",
+      "maxLength": 80,
       "enum": [
         "remote.local_tool_execution",
         "remote.local_llm_exposure",
