@@ -1,0 +1,24 @@
+import type { TranslationResource } from "../../types";
+
+export const commonErrors: TranslationResource = {
+  "console.unavailable.title": "Console unavailable",
+  "console.unavailable.detail": "Unable to load TaskOtter console data.",
+  "actions.retry": "Retry",
+  missingTranslation: "Content unavailable.",
+  "status.blocked": "Blocked",
+  "status.cancelled": "Cancelled",
+  "status.completed": "Completed",
+  "status.done": "Done",
+  "status.failed": "Failed",
+  "status.in_progress": "In progress",
+  "status.in_review": "In review",
+  "status.queued": "Queued",
+  "status.retrying": "Retrying",
+  "status.running": "Running",
+  "status.triage": "Triage",
+  "status.waiting_approval": "Waiting approval",
+  "policy.allowed": "Policy OK",
+  "policy.policy_denied": "Policy denied",
+  "policy.cost_limited": "Cost limited",
+  "policy.runner_offline": "Runner offline",
+};
