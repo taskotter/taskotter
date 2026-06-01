@@ -27,3 +27,12 @@ Use `npm run contracts:check` in CI to verify generated artifacts are reproducib
 Runner and gateway consumers should reject unsupported major versions and tolerate unknown additive fields for compatible minor versions.
 
 Policy decisions, usage events, and audit events carry `correlation_id` and `request_id` so a user request, policy decision, runtime event, and audit record can be reconstructed as one chain. Usage and audit event payloads are nested under the common event envelope.
+
+## Compatibility
+
+`contracts/compatibility-matrix.json` declares the control-plane source of truth
+for the currently supported first-party runner and gateway protocol versions.
+`npm run test:compatibility` validates that generated contracts, canonical
+fixtures, and the repo-local runner/gateway compatibility fixtures all reference
+declared versions and preserve the policy, request, and credential boundaries
+expected by `taskotter-remote` and `taskotter-gateway`.
