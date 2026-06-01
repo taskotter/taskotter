@@ -505,7 +505,9 @@ test("gateway relay fixture covers client-safe streaming state mapping", async (
 });
 
 test("gateway relay schema rejects sensitive provider details", async () => {
-  const [started] = await readJson("contracts/fixtures/gateway-relay-events.json");
+  const [started] = await readJson(
+    "contracts/fixtures/gateway-relay-events.json",
+  );
   const schemas = [
     await readJson("contracts/schemas/gateway-relay-event.schema.json"),
     await readJson("packages/schemas/json/gateway-relay-event.schema.json"),
