@@ -714,7 +714,6 @@ impl IntoResponse for ApiError {
         RedactionClassification,
         RegistryEntry,
         RunnerCapability,
-        RunnerControlPlaneFlags,
         RunnerDispatchDecision,
         RunnerDispatchDiagnostic,
         RunnerDispatchRequest,
@@ -884,9 +883,9 @@ mod tests {
                 .is_object()
         );
         assert!(
-            document["components"]["schemas"]["RunnerControlPlaneFlags"]["properties"]
-                ["kill_switch_engaged"]
-                .is_object()
+            document["components"]["schemas"]
+                .get("RunnerControlPlaneFlags")
+                .is_none()
         );
         assert!(
             document["components"]["schemas"]["RunnerDispatchRequest"]["properties"]
