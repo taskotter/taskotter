@@ -6,5 +6,6 @@ pub mod domain;
 pub mod intake;
 pub mod operations;
 pub mod policy;
+pub mod review_control;
 pub mod review_time;
 pub mod usage;
