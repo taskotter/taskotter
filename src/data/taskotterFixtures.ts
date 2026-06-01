@@ -8,6 +8,15 @@ export const taskotterConsoleFixture: ConsoleData = {
     role: "admin",
     memberCount: 14,
     runnerState: "limited",
+    defaultLanguage: "en",
+    timeZone: "America/Los_Angeles",
+  },
+  localePreferences: {
+    userLanguage: "en",
+    workingGroupDefaultLanguage: "en",
+    browserLanguage: "en-US",
+    formattingLocale: "en-US",
+    timeZone: "America/Los_Angeles",
   },
   issues: [
     {

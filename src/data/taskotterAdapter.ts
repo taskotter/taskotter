@@ -14,6 +14,7 @@ import type {
   TaskOtterDataAdapter,
   WorkingGroup,
 } from "./contracts";
+import { createI18n, resolveLocalePreferences } from "../i18n";
 import { taskotterConsoleFixture } from "./taskotterFixtures";
 
 export class FixtureTaskOtterDataAdapter implements TaskOtterDataAdapter {
@@ -176,12 +177,7 @@ function formatTimestamp(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.valueOf())) return value;
 
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return createI18n(resolveLocalePreferences()).formatDateTime(date);
 }
 
 function displayKey(id: string): string {
@@ -531,6 +527,11 @@ export function mapGeneratedConsoleData(
         firstWorkingGroup?.id ?? "",
         snapshot.integrations.data,
       ),
+      defaultLanguage: "en",
+    },
+    localePreferences: {
+      workingGroupDefaultLanguage: firstWorkingGroup ? "en" : undefined,
+      formattingLocale: "en-US",
     },
     issues,
     selectedIssue,

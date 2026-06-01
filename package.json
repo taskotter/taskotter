@@ -17,9 +17,10 @@
     "contracts:check": "node scripts/generate-contracts.mjs --check",
     "test:compatibility": "node scripts/check-contract-compatibility.mjs",
     "check:module-boundaries": "node scripts/check-module-boundaries.mjs",
+    "check:i18n": "node scripts/check-hardcoded-ui-strings.mjs",
     "test:fixtures": "node --test tests/contracts/*.test.mjs",
     "test:unit": "vitest run",
-    "test": "npm run contracts:check && npm run check:module-boundaries && npm run test:fixtures && npm run test:compatibility && npm run test:unit",
+    "test": "npm run contracts:check && npm run check:module-boundaries && npm run check:i18n && npm run test:fixtures && npm run test:compatibility && npm run test:unit",
     "test:ui": "playwright test"
   },
   "dependencies": {

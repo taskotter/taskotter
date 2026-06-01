@@ -29,31 +29,55 @@ import type {
   SetupStep,
 } from "./data/contracts";
 import { taskOtterDataAdapter } from "./data/taskotterAdapter";
+import { createI18n, resolveLocalePreferences } from "./i18n";
+import type { TranslationKey } from "./i18n/types";
+
+type I18n = ReturnType<typeof createI18n>;
 
 const navItems = [
-  { label: "Inbox", icon: Inbox, count: 8 },
-  { label: "Issues", icon: LayoutDashboard, count: 24 },
-  { label: "Chat", icon: MessageSquare, count: 3 },
-  { label: "Agents", icon: Bot, count: 12 },
-  { label: "Skills", icon: Workflow, count: 37 },
-  { label: "Providers", icon: GitBranch, count: 2 },
-  { label: "Usage", icon: CircleDollarSign, count: 1 },
-  { label: "Settings", icon: Settings, count: 0 },
+  { key: "inbox", labelKey: "webShell.nav.inbox", icon: Inbox, count: 8 },
+  {
+    key: "issues",
+    labelKey: "webShell.nav.issues",
+    icon: LayoutDashboard,
+    count: 24,
+  },
+  { key: "chat", labelKey: "webShell.nav.chat", icon: MessageSquare, count: 3 },
+  { key: "agents", labelKey: "webShell.nav.agents", icon: Bot, count: 12 },
+  { key: "skills", labelKey: "webShell.nav.skills", icon: Workflow, count: 37 },
+  {
+    key: "providers",
+    labelKey: "webShell.nav.providers",
+    icon: GitBranch,
+    count: 2,
+  },
+  {
+    key: "usage",
+    labelKey: "webShell.nav.usage",
+    icon: CircleDollarSign,
+    count: 1,
+  },
+  {
+    key: "settings",
+    labelKey: "webShell.nav.settings",
+    icon: Settings,
+    count: 0,
+  },
 ];
 
-const statusLabel: Record<IssueStatus | RunStatus, string> = {
-  blocked: "Blocked",
-  cancelled: "Cancelled",
-  completed: "Completed",
-  done: "Done",
-  failed: "Failed",
-  in_progress: "In progress",
-  in_review: "In review",
-  queued: "Queued",
-  retrying: "Retrying",
-  running: "Running",
-  triage: "Triage",
-  waiting_approval: "Waiting approval",
+const statusLabelKey: Record<IssueStatus | RunStatus, TranslationKey> = {
+  blocked: "commonErrors.status.blocked",
+  cancelled: "commonErrors.status.cancelled",
+  completed: "commonErrors.status.completed",
+  done: "commonErrors.status.done",
+  failed: "commonErrors.status.failed",
+  in_progress: "commonErrors.status.in_progress",
+  in_review: "commonErrors.status.in_review",
+  queued: "commonErrors.status.queued",
+  retrying: "commonErrors.status.retrying",
+  running: "commonErrors.status.running",
+  triage: "commonErrors.status.triage",
+  waiting_approval: "commonErrors.status.waiting_approval",
 };
 
 const statusSeverity: Record<IssueStatus | RunStatus, Severity> = {
@@ -72,9 +96,11 @@ const statusSeverity: Record<IssueStatus | RunStatus, Severity> = {
 };
 
 function StatusBadge({
+  i18n,
   status,
   label,
 }: {
+  i18n: I18n;
   status: IssueStatus | RunStatus | Severity;
   label?: string;
 }) {
@@ -84,8 +110,8 @@ function StatusBadge({
       : (status as Severity);
   const text =
     label ??
-    (status in statusLabel
-      ? statusLabel[status as IssueStatus | RunStatus]
+    (status in statusLabelKey
+      ? i18n.t(statusLabelKey[status as IssueStatus | RunStatus])
       : status);
 
   return (
@@ -96,20 +122,11 @@ function StatusBadge({
   );
 }
 
-function policyLabel(policyState: IssueSummary["policyState"]) {
-  switch (policyState) {
-    case "allowed":
-      return "Policy OK";
-    case "policy_denied":
-      return "Policy denied";
-    case "cost_limited":
-      return "Cost limited";
-    case "runner_offline":
-      return "Runner offline";
-  }
+function policyLabel(i18n: I18n, policyState: IssueSummary["policyState"]) {
+  return i18n.t(`commonErrors.policy.${policyState}` as TranslationKey);
 }
 
-function AppShell({ data }: { data: ConsoleData }) {
+function AppShell({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
   const groupedIssues = useMemo(
     () =>
       data.issues.reduce<Record<IssueSummary["group"], IssueSummary[]>>(
@@ -121,44 +138,55 @@ function AppShell({ data }: { data: ConsoleData }) {
       ),
     [data.issues],
   );
+  const memberLabel = i18n.plural(
+    "webShell.workspace.member",
+    data.workingGroup.memberCount,
+  );
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark" aria-hidden="true">
-            TO
+            {i18n.t("webShell.brand.initials")}
           </div>
           <div>
-            <strong>TaskOtter</strong>
-            <span>Admin console</span>
+            <strong>{i18n.t("webShell.brand.name")}</strong>
+            <span>{i18n.t("webShell.brand.subtitle")}</span>
           </div>
         </div>
         <button
-          aria-label={`Switch working group: ${data.workingGroup.name}, ${data.workingGroup.role}, ${data.workingGroup.memberCount} members`}
+          aria-label={i18n.t("webShell.workspace.switcherLabel", {
+            name: data.workingGroup.name,
+            role: data.workingGroup.role,
+            memberCount: data.workingGroup.memberCount,
+            memberLabel,
+          })}
           className="workspace-switcher"
           type="button"
         >
           <span>
             <strong>{data.workingGroup.name}</strong>
             <small>
-              {data.workingGroup.role} · {data.workingGroup.memberCount} members
+              {data.workingGroup.role} · {data.workingGroup.memberCount}{" "}
+              {memberLabel}
             </small>
           </span>
           <ChevronDown size={16} aria-hidden="true" />
         </button>
-        <nav className="nav-list" aria-label="TaskOtter navigation">
+        <nav className="nav-list" aria-label={i18n.t("webShell.nav.label")}>
           {navItems.map((item) => {
             const Icon = item.icon;
+            const label = i18n.t(item.labelKey as TranslationKey);
             return (
               <a
-                aria-label={item.label}
-                aria-current={item.label === "Issues" ? "page" : undefined}
-                href={`#${item.label.toLowerCase()}`}
-                key={item.label}
+                aria-label={label}
+                aria-current={item.key === "issues" ? "page" : undefined}
+                href={`#${item.key}`}
+                key={item.key}
               >
                 <Icon size={17} aria-hidden="true" />
-                <span>{item.label}</span>
+                <span>{label}</span>
                 {item.count > 0 ? <small>{item.count}</small> : null}
               </a>
             );
@@ -166,10 +194,13 @@ function AppShell({ data }: { data: ConsoleData }) {
         </nav>
         <div className="sidebar-health">
           <StatusBadge
+            i18n={i18n}
             status={
               data.workingGroup.runnerState === "online" ? "success" : "warning"
             }
-            label={`Runner ${data.workingGroup.runnerState}`}
+            label={i18n.t("webShell.runner.state", {
+              state: data.workingGroup.runnerState,
+            })}
           />
           <p>{data.workingGroup.plan}</p>
         </div>
@@ -178,25 +209,28 @@ function AppShell({ data }: { data: ConsoleData }) {
       <main className="workspace" aria-labelledby="issues-title">
         <header className="page-header">
           <div>
-            <p className="eyebrow">Working Group / Issues</p>
-            <h1 id="issues-title">Issue operations</h1>
+            <p className="eyebrow">{i18n.t("webShell.page.eyebrow")}</p>
+            <h1 id="issues-title">{i18n.t("webShell.page.title")}</h1>
           </div>
-          <div className="header-actions" aria-label="Issue actions">
+          <div
+            className="header-actions"
+            aria-label={i18n.t("webShell.actions.label")}
+          >
             <button type="button">
               <Command size={16} aria-hidden="true" />
-              Command
+              {i18n.t("webShell.actions.command")}
             </button>
             <button type="button" className="primary-action">
               <PlayCircle size={16} aria-hidden="true" />
-              New run
+              {i18n.t("webShell.actions.newRun")}
             </button>
           </div>
         </header>
 
         <section className="setup-band" aria-labelledby="setup-title">
           <div>
-            <p className="eyebrow">First-run setup</p>
-            <h2 id="setup-title">Working Group setup path</h2>
+            <p className="eyebrow">{i18n.t("issues.setup.eyebrow")}</p>
+            <h2 id="setup-title">{i18n.t("issues.setup.title")}</h2>
           </div>
           <ol className="setup-steps">
             {data.setupSteps.map((step) => (
@@ -205,32 +239,41 @@ function AppShell({ data }: { data: ConsoleData }) {
           </ol>
         </section>
 
-        <section className="toolbar" aria-label="Issue filtering controls">
+        <section
+          className="toolbar"
+          aria-label={i18n.t("issues.toolbar.label")}
+        >
           <label className="search-field">
             <Search size={16} aria-hidden="true" />
-            <span className="sr-only">Search issues</span>
-            <input placeholder="Search issues, agents, comments" />
+            <span className="sr-only">
+              {i18n.t("issues.toolbar.searchLabel")}
+            </span>
+            <input placeholder={i18n.t("issues.toolbar.searchPlaceholder")} />
           </label>
           <button type="button">
             <ListFilter size={16} aria-hidden="true" />
-            Grouped
+            {i18n.t("issues.toolbar.grouped")}
           </button>
           <button type="button">
             <SlidersHorizontal size={16} aria-hidden="true" />
-            Filters
+            {i18n.t("issues.toolbar.filters")}
           </button>
         </section>
 
-        <section className="issue-surface" aria-label="Grouped issue list">
+        <section
+          className="issue-surface"
+          aria-label={i18n.t("issues.list.label")}
+        >
           {Object.entries(groupedIssues).map(([group, issues]) => (
             <div className="issue-group" key={group}>
               <h2>
-                {group}
+                {i18n.t(`issues.group.${group}` as TranslationKey)}
                 <span>{issues.length}</span>
               </h2>
               <div className="issue-rows">
                 {issues.map((issue) => (
                   <IssueRow
+                    i18n={i18n}
                     key={issue.id}
                     issue={issue}
                     selected={issue.id === data.selectedIssue.id}
@@ -243,7 +286,7 @@ function AppShell({ data }: { data: ConsoleData }) {
       </main>
 
       <aside className="focus-panel" aria-labelledby="focus-title">
-        <IssueDetail data={data} />
+        <IssueDetail data={data} i18n={i18n} />
       </aside>
     </div>
   );
@@ -271,9 +314,11 @@ function SetupStepItem({ step }: { step: SetupStep }) {
 }
 
 function IssueRow({
+  i18n,
   issue,
   selected,
 }: {
+  i18n: I18n;
   issue: IssueSummary;
   selected: boolean;
 }) {
@@ -291,32 +336,36 @@ function IssueRow({
           {issue.title}
         </strong>
         <p>
-          {issue.assignee} · updated {issue.updatedAt}
+          {issue.assignee} ·{" "}
+          {i18n.t("issues.row.updated", { value: issue.updatedAt })}
         </p>
       </div>
       <div className="issue-row-meta">
-        <StatusBadge status={issue.status} />
+        <StatusBadge i18n={i18n} status={issue.status} />
         <StatusBadge
+          i18n={i18n}
           status={issue.policyState === "allowed" ? "success" : "warning"}
-          label={policyLabel(issue.policyState)}
+          label={policyLabel(i18n, issue.policyState)}
         />
-        <span className="comment-count">{issue.commentCount} comments</span>
+        <span className="comment-count">
+          {i18n.plural("issues.row.comments", issue.commentCount)}
+        </span>
       </div>
     </article>
   );
 }
 
-function IssueDetail({ data }: { data: ConsoleData }) {
+function IssueDetail({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
   const issue = data.selectedIssue;
 
   return (
     <div className="detail-layout">
       <header className="focus-header">
         <div>
-          <p className="eyebrow">Focus panel</p>
+          <p className="eyebrow">{i18n.t("issues.detail.eyebrow")}</p>
           <h2 id="focus-title">{issue.key}</h2>
         </div>
-        <StatusBadge status={issue.status} />
+        <StatusBadge i18n={i18n} status={issue.status} />
       </header>
 
       <section className="detail-section" aria-labelledby="detail-title">
@@ -324,26 +373,26 @@ function IssueDetail({ data }: { data: ConsoleData }) {
         <p>{issue.description}</p>
         <dl className="detail-grid">
           <div>
-            <dt>Parent</dt>
+            <dt>{i18n.t("issues.detail.parent")}</dt>
             <dd>{issue.parent}</dd>
           </div>
           <div>
-            <dt>Priority</dt>
+            <dt>{i18n.t("issues.detail.priority")}</dt>
             <dd>{issue.priority}</dd>
           </div>
           <div>
-            <dt>Assignee</dt>
+            <dt>{i18n.t("issues.detail.assignee")}</dt>
             <dd>{issue.assignee}</dd>
           </div>
           <div>
-            <dt>Children</dt>
+            <dt>{i18n.t("issues.detail.children")}</dt>
             <dd>{issue.children.join(", ")}</dd>
           </div>
         </dl>
       </section>
 
       <section className="detail-section" aria-labelledby="acceptance-title">
-        <h3 id="acceptance-title">Acceptance criteria</h3>
+        <h3 id="acceptance-title">{i18n.t("issues.acceptance.title")}</h3>
         <ul className="check-list">
           {issue.acceptance.map((item) => (
             <li key={item}>
@@ -355,7 +404,7 @@ function IssueDetail({ data }: { data: ConsoleData }) {
       </section>
 
       <section className="detail-section" aria-labelledby="run-title">
-        <h3 id="run-title">Agent run progress</h3>
+        <h3 id="run-title">{i18n.t("issues.run.title")}</h3>
         <ol className="run-timeline">
           {data.runSteps.map((step) => (
             <li key={step.id} className={`run-step run-${step.severity}`}>
@@ -367,7 +416,8 @@ function IssueDetail({ data }: { data: ConsoleData }) {
               <div>
                 <strong>{step.label}</strong>
                 <p>
-                  {statusLabel[step.status]} · {step.timestamp} · {step.detail}
+                  {i18n.t(statusLabelKey[step.status])} · {step.timestamp} ·{" "}
+                  {step.detail}
                 </p>
               </div>
             </li>
@@ -376,7 +426,7 @@ function IssueDetail({ data }: { data: ConsoleData }) {
       </section>
 
       <section className="detail-section" aria-labelledby="comments-title">
-        <h3 id="comments-title">Threaded comments</h3>
+        <h3 id="comments-title">{i18n.t("issues.comments.title")}</h3>
         <div className="comment-thread">
           {issue.comments.map((comment) => (
             <article className="comment" key={comment.id}>
@@ -399,16 +449,16 @@ function IssueDetail({ data }: { data: ConsoleData }) {
             </article>
           ))}
         </div>
-        <form className="composer" aria-label="Reply composer">
-          <label htmlFor="reply">Reply</label>
+        <form className="composer" aria-label={i18n.t("issues.composer.label")}>
+          <label htmlFor="reply">{i18n.t("issues.composer.replyLabel")}</label>
           <textarea
             id="reply"
-            placeholder="Write a concise handoff or blocker."
+            placeholder={i18n.t("issues.composer.placeholder")}
           />
           <div>
-            <button type="button">Cancel</button>
+            <button type="button">{i18n.t("issues.composer.cancel")}</button>
             <button type="submit" className="primary-action">
-              Send reply
+              {i18n.t("issues.composer.send")}
             </button>
           </div>
         </form>
@@ -419,7 +469,12 @@ function IssueDetail({ data }: { data: ConsoleData }) {
 
 export function App() {
   const [data, setData] = useState<ConsoleData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+  const resolvedLocale = useMemo(
+    () => resolveLocalePreferences(data?.localePreferences),
+    [data?.localePreferences],
+  );
+  const i18n = useMemo(() => createI18n(resolvedLocale), [resolvedLocale]);
 
   useEffect(() => {
     let mounted = true;
@@ -430,7 +485,7 @@ export function App() {
         if (mounted) setData(nextData);
       })
       .catch(() => {
-        if (mounted) setError("Unable to load TaskOtter console data.");
+        if (mounted) setError(true);
       });
 
     return () => {
@@ -442,9 +497,9 @@ export function App() {
     return (
       <main className="load-state" aria-live="polite">
         <AlertTriangle size={24} aria-hidden="true" />
-        <h1>Console unavailable</h1>
-        <p>{error}</p>
-        <button type="button">Retry</button>
+        <h1>{i18n.t("commonErrors.console.unavailable.title")}</h1>
+        <p>{i18n.t("commonErrors.console.unavailable.detail")}</p>
+        <button type="button">{i18n.t("commonErrors.actions.retry")}</button>
       </main>
     );
   }
@@ -453,11 +508,11 @@ export function App() {
     return (
       <main className="load-state" aria-busy="true" aria-live="polite">
         <div className="skeleton-block" />
-        <h1>Loading TaskOtter console</h1>
-        <p>Preparing issue workspace, focus panel, and setup path.</p>
+        <h1>{i18n.t("webShell.loading.title")}</h1>
+        <p>{i18n.t("webShell.loading.detail")}</p>
       </main>
     );
   }
 
-  return <AppShell data={data} />;
+  return <AppShell data={data} i18n={i18n} />;
 }

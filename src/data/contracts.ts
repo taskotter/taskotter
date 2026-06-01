@@ -24,6 +24,8 @@ export interface WorkingGroup {
   role: "owner" | "admin" | "member";
   memberCount: number;
   runnerState: "online" | "offline" | "limited";
+  defaultLanguage?: string;
+  timeZone?: string;
 }
 
 export interface IssueSummary {
@@ -76,6 +78,13 @@ export interface SetupStep {
 
 export interface ConsoleData {
   workingGroup: WorkingGroup;
+  localePreferences: {
+    userLanguage?: string;
+    workingGroupDefaultLanguage?: string;
+    browserLanguage?: string;
+    formattingLocale?: string;
+    timeZone?: string;
+  };
   issues: IssueSummary[];
   selectedIssue: IssueDetail;
   runSteps: RunStep[];
