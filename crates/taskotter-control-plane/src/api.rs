@@ -40,6 +40,14 @@ use crate::{
         BaselinePolicyEvaluator, PolicyActorRef, PolicyDecision, PolicyDecisionRequest,
         PolicyEvaluator,
     },
+    review_control::{
+        AcceptanceCriterion, ApproveReviewControlPlanRequest, AuditCorrelation, AutonomyLevel,
+        CompleteReviewControlRequest, CreateReviewControlWorkItemRequest, PlanApproval,
+        PlanApprovalState, ReviewControlError, ReviewControlRedactionSummary, ReviewControlState,
+        ReviewControlWorkItem, ReviewDecision, ReviewDecisionReasonCode, ReviewDecisionState,
+        RiskTier, UpdateReviewControlWorkItemRequest, WorkItemRequestContext, WorkItemSource,
+        WorkItemSourceType,
+    },
     review_time::{
         ReviewTelemetryEvaluationRequest, ReviewTimeMetrics, calculate_review_time_metrics,
     },
@@ -76,6 +84,7 @@ struct Store {
     remote_usage_reports: Vec<RemoteUsageReportV1>,
     imported_agent_result_evidence: Vec<ImportedAgentResultEvidence>,
     review_packet_refs: Vec<ReviewPacketRef>,
+    review_control_work_items: Vec<ReviewControlWorkItem>,
     run_timeline_events: Vec<RunTimelineEventV1>,
     operations_audit_events: Vec<OperationsAuditEventV1>,
     operations_health_events: Vec<OperationsHealthEventV1>,
@@ -188,6 +197,26 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/review-time/evaluate", post(evaluate_review_time))
         .route("/v1/agent-result-imports", post(import_agent_result))
         .route("/v1/review-packets/{work_item_id}", get(get_review_packet))
+        .route(
+            "/v1/review-control/work-items",
+            post(create_review_control_work_item),
+        )
+        .route(
+            "/v1/review-control/work-items/{work_item_id}",
+            get(get_review_control_work_item).patch(update_review_control_work_item),
+        )
+        .route(
+            "/v1/review-control/work-items/{work_item_id}/approve-plan",
+            post(approve_review_control_plan),
+        )
+        .route(
+            "/v1/review-control/work-items/{work_item_id}/done",
+            post(mark_review_control_done),
+        )
+        .route(
+            "/v1/review-control/work-items/{work_item_id}/rework",
+            post(request_review_control_rework),
+        )
         .route("/v1/audit/events", post(create_audit_event))
         .route(
             "/v1/operations/timeline/events",
@@ -525,6 +554,136 @@ async fn get_review_packet(
     )))
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/review-control/work-items",
+    request_body = CreateReviewControlWorkItemRequest,
+    responses((status = 201, body = ReviewControlWorkItem), (status = 400, body = ErrorResponse))
+)]
+async fn create_review_control_work_item(
+    State(state): State<AppState>,
+    SafeJson(request): SafeJson<CreateReviewControlWorkItemRequest>,
+) -> Result<(StatusCode, Json<ReviewControlWorkItem>), ApiError> {
+    let work_item = request.into_work_item().map_err(ApiError::from)?;
+    state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal())?
+        .review_control_work_items
+        .push(work_item.clone());
+
+    Ok((StatusCode::CREATED, Json(work_item)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/review-control/work-items/{work_item_id}",
+    params(("work_item_id" = Uuid, Path, description = "Review control work item identifier")),
+    responses((status = 200, body = ReviewControlWorkItem), (status = 404, body = ErrorResponse))
+)]
+async fn get_review_control_work_item(
+    State(state): State<AppState>,
+    Path(work_item_id): Path<IssueId>,
+) -> Result<Json<ReviewControlWorkItem>, ApiError> {
+    let store = state.store.lock().map_err(|_| ApiError::internal())?;
+    let work_item = find_review_control_work_item(&store, work_item_id)?;
+    Ok(Json(work_item.clone()))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/v1/review-control/work-items/{work_item_id}",
+    params(("work_item_id" = Uuid, Path, description = "Review control work item identifier")),
+    request_body = UpdateReviewControlWorkItemRequest,
+    responses((status = 200, body = ReviewControlWorkItem), (status = 400, body = ErrorResponse), (status = 409, body = ErrorResponse), (status = 404, body = ErrorResponse))
+)]
+async fn update_review_control_work_item(
+    State(state): State<AppState>,
+    Path(work_item_id): Path<IssueId>,
+    SafeJson(request): SafeJson<UpdateReviewControlWorkItemRequest>,
+) -> Result<Json<ReviewControlWorkItem>, ApiError> {
+    mutate_review_control_work_item(state, work_item_id, |work_item| {
+        work_item.apply_update(request)
+    })
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/review-control/work-items/{work_item_id}/approve-plan",
+    params(("work_item_id" = Uuid, Path, description = "Review control work item identifier")),
+    request_body = ApproveReviewControlPlanRequest,
+    responses((status = 200, body = ReviewControlWorkItem), (status = 400, body = ErrorResponse), (status = 409, body = ErrorResponse), (status = 404, body = ErrorResponse))
+)]
+async fn approve_review_control_plan(
+    State(state): State<AppState>,
+    Path(work_item_id): Path<IssueId>,
+    SafeJson(request): SafeJson<ApproveReviewControlPlanRequest>,
+) -> Result<Json<ReviewControlWorkItem>, ApiError> {
+    mutate_review_control_work_item(state, work_item_id, |work_item| {
+        work_item.approve_plan(request)
+    })
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/review-control/work-items/{work_item_id}/done",
+    params(("work_item_id" = Uuid, Path, description = "Review control work item identifier")),
+    request_body = CompleteReviewControlRequest,
+    responses((status = 200, body = ReviewControlWorkItem), (status = 400, body = ErrorResponse), (status = 409, body = ErrorResponse), (status = 404, body = ErrorResponse))
+)]
+async fn mark_review_control_done(
+    State(state): State<AppState>,
+    Path(work_item_id): Path<IssueId>,
+    SafeJson(request): SafeJson<CompleteReviewControlRequest>,
+) -> Result<Json<ReviewControlWorkItem>, ApiError> {
+    mutate_review_control_work_item(state, work_item_id, |work_item| {
+        work_item.mark_done(request)
+    })
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/review-control/work-items/{work_item_id}/rework",
+    params(("work_item_id" = Uuid, Path, description = "Review control work item identifier")),
+    request_body = CompleteReviewControlRequest,
+    responses((status = 200, body = ReviewControlWorkItem), (status = 400, body = ErrorResponse), (status = 409, body = ErrorResponse), (status = 404, body = ErrorResponse))
+)]
+async fn request_review_control_rework(
+    State(state): State<AppState>,
+    Path(work_item_id): Path<IssueId>,
+    SafeJson(request): SafeJson<CompleteReviewControlRequest>,
+) -> Result<Json<ReviewControlWorkItem>, ApiError> {
+    mutate_review_control_work_item(state, work_item_id, |work_item| {
+        work_item.request_rework(request)
+    })
+}
+
+fn find_review_control_work_item(
+    store: &Store,
+    work_item_id: IssueId,
+) -> Result<&ReviewControlWorkItem, ApiError> {
+    store
+        .review_control_work_items
+        .iter()
+        .find(|work_item| work_item.id == work_item_id)
+        .ok_or_else(ApiError::not_found)
+}
+
+fn mutate_review_control_work_item(
+    state: AppState,
+    work_item_id: IssueId,
+    update: impl FnOnce(&mut ReviewControlWorkItem) -> Result<(), ReviewControlError>,
+) -> Result<Json<ReviewControlWorkItem>, ApiError> {
+    let mut store = state.store.lock().map_err(|_| ApiError::internal())?;
+    let work_item = store
+        .review_control_work_items
+        .iter_mut()
+        .find(|work_item| work_item.id == work_item_id)
+        .ok_or_else(ApiError::not_found)?;
+    update(work_item).map_err(ApiError::from)?;
+    Ok(Json(work_item.clone()))
+}
+
 fn imported_result_timeline_event(event_id: String, work_item_id: IssueId) -> RunTimelineEventV1 {
     RunTimelineEventV1 {
         id: event_id,
@@ -795,6 +954,18 @@ impl ApiError {
     }
 }
 
+impl From<ReviewControlError> for ApiError {
+    fn from(error: ReviewControlError) -> Self {
+        match error {
+            ReviewControlError::InvalidTransition => Self::conflict(),
+            ReviewControlError::Required(_)
+            | ReviewControlError::UnsupportedSchemaVersion
+            | ReviewControlError::UnsafeReference { .. }
+            | ReviewControlError::MissingAcceptanceCriteria => Self::invalid_payload(),
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         (self.status, Json(ErrorResponse { error: self.body })).into_response()
@@ -815,23 +986,35 @@ impl IntoResponse for ApiError {
         create_remote_usage_report,
         import_agent_result,
         get_review_packet,
+        create_review_control_work_item,
+        get_review_control_work_item,
+        update_review_control_work_item,
+        approve_review_control_plan,
+        mark_review_control_done,
+        request_review_control_rework,
         create_audit_event,
         create_run_timeline_event,
         create_operations_audit_event,
         create_operations_health_event
     ),
     components(schemas(
+        AcceptanceCriterion,
+        ApproveReviewControlPlanRequest,
         ArtifactEvidence,
+        AuditCorrelation,
+        AutonomyLevel,
         AuditEvent,
         ChangedFileEvidence,
         ChangedFileKind,
         CommandEvidence,
         CommandOutcome,
+        CompleteReviewControlRequest,
         CreateAuditEventRequest,
         Comment,
         CreateCommentRequest,
         CreateIssueRequest,
         CreateRegistryEntryRequest,
+        CreateReviewControlWorkItemRequest,
         CreateWorkingGroupRequest,
         ErrorCode,
         ErrorEnvelope,
@@ -858,15 +1041,24 @@ impl IntoResponse for ApiError {
         OperationsHealthEventV1,
         OperationsResourceRef,
         OperationsSourceSurface,
+        PlanApproval,
+        PlanApprovalState,
         PolicyDecision,
         PolicyDecisionRequest,
         PolicyActorRef,
         RedactionClassification,
         RedactionSummary,
         RegistryEntry,
+        ReviewControlRedactionSummary,
+        ReviewControlState,
+        ReviewControlWorkItem,
+        ReviewDecision,
+        ReviewDecisionReasonCode,
+        ReviewDecisionState,
         ReviewPacketEvidence,
         RoleBinding,
         RemoteUsageReportV1,
+        RiskTier,
         RunTimelineEventV1,
         RunTimelineStage,
         RunTimelineStatusReason,
@@ -888,6 +1080,10 @@ impl IntoResponse for ApiError {
         UsageSecuritySignalCode,
         UsageSourceSurface,
         UsageSubjectRef,
+        UpdateReviewControlWorkItemRequest,
+        WorkItemRequestContext,
+        WorkItemSource,
+        WorkItemSourceType,
         WorkingGroup,
         WorkingGroupMembership,
         WorkingGroupRole
@@ -991,6 +1187,44 @@ mod tests {
             .body(Body::from(request.to_string()))?)
     }
 
+    fn review_control_create_request() -> Value {
+        json!({
+            "schema_version": "review_control.work_item.v1",
+            "request": {
+                "source": {
+                    "source_type": "multica_issue",
+                    "source_ref": "issue_BOG_571"
+                },
+                "summary": "Implement review control contract."
+            },
+            "acceptance_criteria": [
+                {
+                    "id": "ac_create",
+                    "text": "Create and transitions are contract tested.",
+                    "required": true
+                }
+            ],
+            "risk_tier": "high",
+            "autonomy_level": "human_approval_required",
+            "audit": {
+                "correlation_id": "corr_BOG_571",
+                "request_id": "req_BOG_571"
+            }
+        })
+    }
+
+    fn json_http_request(
+        method: &str,
+        uri: &str,
+        body: Value,
+    ) -> Result<Request<Body>, Box<dyn std::error::Error>> {
+        Ok(Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))?)
+    }
+
     #[tokio::test]
     async fn exposes_generated_openapi_contract() -> Result<(), Box<dyn std::error::Error>> {
         let response = build_router(AppState::default())
@@ -1013,6 +1247,16 @@ mod tests {
         assert!(document["paths"]["/v1/usage/events"].is_object());
         assert!(document["paths"]["/v1/remote/usage-reports"].is_object());
         assert!(document["paths"]["/v1/review-time/evaluate"].is_null());
+        assert!(document["paths"]["/v1/review-control/work-items"].is_object());
+        assert!(document["paths"]["/v1/review-control/work-items/{work_item_id}"].is_object());
+        assert!(
+            document["paths"]["/v1/review-control/work-items/{work_item_id}/approve-plan"]
+                .is_object()
+        );
+        assert!(document["paths"]["/v1/review-control/work-items/{work_item_id}/done"].is_object());
+        assert!(
+            document["paths"]["/v1/review-control/work-items/{work_item_id}/rework"].is_object()
+        );
         assert!(document["paths"]["/v1/audit/events"].is_object());
         assert!(document["paths"]["/v1/operations/timeline/events"].is_object());
         assert!(document["paths"]["/v1/operations/audit/events"].is_object());
@@ -1027,6 +1271,10 @@ mod tests {
         );
         assert!(
             document["components"]["schemas"]["RunTimelineEventV1"]["properties"]["stage"]
+                .is_object()
+        );
+        assert!(
+            document["components"]["schemas"]["ReviewControlWorkItem"]["properties"]["state"]
                 .is_object()
         );
         let error = &document["components"]["schemas"]["ErrorEnvelope"];
@@ -2142,6 +2390,221 @@ mod tests {
             "[redacted]"
         );
         drop(store);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn review_control_create_update_approve_done_transition()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        let app = build_router(state);
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                review_control_create_request(),
+            )?)
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let created: Value = serde_json::from_slice(&body)?;
+        let work_item_id = created["id"]
+            .as_str()
+            .ok_or("work item id should serialize as string")?;
+        assert_eq!(created["state"], "draft");
+        assert_eq!(created["plan_approval"]["state"], "pending");
+        assert_eq!(created["review_decision"]["state"], "pending");
+
+        let uri = format!("/v1/review-control/work-items/{work_item_id}");
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "PATCH",
+                &uri,
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "imported_result_refs": ["import_agent_result_1"],
+                    "evidence_refs": ["review_packet_1"],
+                    "audit_event_ref": "audit_update_1"
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let updated: Value = serde_json::from_slice(&body)?;
+        assert_eq!(updated["state"], "ready_for_review");
+        assert_eq!(updated["imported_result_refs"][0], "import_agent_result_1");
+
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                &format!("/v1/review-control/work-items/{work_item_id}/approve-plan"),
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "decision_ref": "plan_decision_1",
+                    "audit_event_ref": "audit_plan_1"
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let approved: Value = serde_json::from_slice(&body)?;
+        assert_eq!(approved["plan_approval"]["state"], "approved");
+
+        let response = app
+            .oneshot(json_http_request(
+                "POST",
+                &format!("/v1/review-control/work-items/{work_item_id}/done"),
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "decision_ref": "done_decision_1",
+                    "reason_code": "acceptance_criteria_met",
+                    "audit_event_ref": "audit_done_1"
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let done: Value = serde_json::from_slice(&body)?;
+        assert_eq!(done["state"], "done");
+        assert_eq!(done["review_decision"]["state"], "done");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn review_control_approve_rework_transition() -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        let app = build_router(state);
+        let mut create = review_control_create_request();
+        create["evidence_refs"] = json!(["review_packet_1"]);
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                create,
+            )?)
+            .await?;
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let created: Value = serde_json::from_slice(&body)?;
+        let work_item_id = created["id"]
+            .as_str()
+            .ok_or("work item id should serialize as string")?;
+
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                &format!("/v1/review-control/work-items/{work_item_id}/approve-plan"),
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "decision_ref": "plan_decision_1",
+                    "audit_event_ref": "audit_plan_1"
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .oneshot(json_http_request(
+                "POST",
+                &format!("/v1/review-control/work-items/{work_item_id}/rework"),
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "decision_ref": "rework_decision_1",
+                    "reason_code": "reviewer_requested_rework",
+                    "audit_event_ref": "audit_rework_1"
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let rework: Value = serde_json::from_slice(&body)?;
+        assert_eq!(rework["state"], "rework");
+        assert_eq!(rework["review_decision"]["state"], "rework");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn review_control_invalid_transition_returns_stable_conflict()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let app = build_router(AppState::default());
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                review_control_create_request(),
+            )?)
+            .await?;
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let created: Value = serde_json::from_slice(&body)?;
+        let work_item_id = created["id"]
+            .as_str()
+            .ok_or("work item id should serialize as string")?;
+
+        let response = app
+            .oneshot(json_http_request(
+                "POST",
+                &format!("/v1/review-control/work-items/{work_item_id}/done"),
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "decision_ref": "done_decision_1",
+                    "reason_code": "acceptance_criteria_met",
+                    "audit_event_ref": "audit_done_1"
+                }),
+            )?)
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_eq!(envelope["error"]["code"], "conflict");
+        assert_eq!(envelope["error"]["message_key"], "errors.conflict");
+        assert_eq!(envelope["error"]["support"]["redacted"], true);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn review_control_contract_redacts_and_rejects_secret_shaped_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let app = build_router(AppState::default());
+        let mut request = review_control_create_request();
+        request["request"]["summary"] = json!("Summary accidentally includes bearer token.");
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                request,
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let created: Value = serde_json::from_slice(&body)?;
+        let serialized = serde_json::to_string(&created)?;
+        assert_eq!(created["request"]["summary"], "[redacted]");
+        assert_eq!(created["redaction_summary"]["redacted"], true);
+        assert!(!serialized.contains("bearer token"));
+
+        let mut unsafe_request = review_control_create_request();
+        unsafe_request["evidence_refs"] = json!(["raw_log_token_unsafe"]);
+        let response = app
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                unsafe_request,
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        let serialized = serde_json::to_string(&envelope)?;
+        assert_eq!(envelope["error"]["code"], "validation_failed");
+        assert!(!serialized.contains("raw_log_token_unsafe"));
         Ok(())
     }
 

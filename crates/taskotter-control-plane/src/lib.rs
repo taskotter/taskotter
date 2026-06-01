@@ -5,5 +5,6 @@ pub mod authorization;
 pub mod domain;
 pub mod operations;
 pub mod policy;
+pub mod review_control;
 pub mod review_time;
 pub mod usage;
