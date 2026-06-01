@@ -17,6 +17,69 @@ export type RunStatus =
 
 export type Severity = "neutral" | "success" | "warning" | "danger" | "info";
 
+export type FirstRunDenialReasonCode =
+  | "policy_denied"
+  | "cost_limited"
+  | "paid_activation_required"
+  | "runner_offline";
+
+export interface FirstRunTimelineItem {
+  id: string;
+  messageKey: string;
+  status: RunStatus;
+  severity: Severity;
+  safeRefs: string[];
+  redacted: true;
+}
+
+export interface FirstRunPermissionState {
+  role: "admin" | "member";
+  canConfigure: boolean;
+  canRunDiagnostic: boolean;
+  readOnlyReasonCode?: "member_read_only" | "owner_required";
+  workingGroupId: string;
+}
+
+export interface FirstRunOnboarding {
+  workingGroupId: string;
+  permissions: FirstRunPermissionState;
+  permissionFixtures: {
+    member: FirstRunPermissionState;
+  };
+  providerRoute: {
+    providerName: string;
+    modelName: string;
+    credentialRef: string;
+    credentialStatus: "reference_present" | "missing" | "expired";
+  };
+  costUsageDefaults: {
+    monthlyLimitMicros: number;
+    perRunLimitMicros: number;
+    usageDeltaMicros: 0;
+    billable: false;
+  };
+  runnerAvailability: {
+    runnerState: WorkingGroup["runnerState"];
+    mcpState: "available" | "unavailable" | "policy_disabled";
+    blockedReasonCode?: FirstRunDenialReasonCode;
+  };
+  binding: {
+    agentName: string;
+    skillName: string;
+  };
+  diagnosticContract: {
+    mode: "fixture" | "policy_check_only";
+    allowPaidCall: false;
+    idempotencyKey: string;
+    billable: false;
+    usageDeltaMicros: 0;
+    policyDecisionId: string;
+    denialReasonCode?: FirstRunDenialReasonCode;
+    blockedReasonCode?: FirstRunDenialReasonCode;
+  };
+  timeline: FirstRunTimelineItem[];
+}
+
 export interface WorkingGroup {
   id: string;
   name: string;
@@ -89,6 +152,7 @@ export interface ConsoleData {
   selectedIssue: IssueDetail;
   runSteps: RunStep[];
   setupSteps: SetupStep[];
+  firstRunOnboarding: FirstRunOnboarding;
 }
 
 export interface TaskOtterDataAdapter {
