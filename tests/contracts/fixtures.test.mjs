@@ -266,8 +266,12 @@ test("high-risk runtime fixtures stay deny-by-default and metered by capability"
 });
 
 test("runner-sensitive snapshot reconstructs correlation chain without raw secrets", async () => {
-  const usageSchema = await readJson("contracts/schemas/usage-event.schema.json");
-  const auditSchema = await readJson("contracts/schemas/audit-event.schema.json");
+  const usageSchema = await readJson(
+    "contracts/schemas/usage-event.schema.json",
+  );
+  const auditSchema = await readJson(
+    "contracts/schemas/audit-event.schema.json",
+  );
   const snapshot = await readJson(
     "contracts/fixtures/runner-sensitive-correlation-snapshot.json",
   );

@@ -1,9 +1,6 @@
 {
   "schema_version": "runner_sensitive_correlation_snapshot@0.1.0",
-  "roadmap_sources": [
-    "docs/operations-run-surfaces.md",
-    "contracts/README.md"
-  ],
+  "roadmap_sources": ["docs/operations-run-surfaces.md", "contracts/README.md"],
   "redaction_policy": "safe_refs_only",
   "scenario_coverage": {
     "dispatch_accepted": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RA",
@@ -28,12 +25,7 @@
         "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RF",
         "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RG"
       ],
-      "flow": [
-        "request",
-        "policy",
-        "dispatch",
-        "runner_result"
-      ]
+      "flow": ["request", "policy", "dispatch", "runner_result"]
     }
   ],
   "timeline_events": [
