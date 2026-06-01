@@ -19,6 +19,14 @@ use crate::{
         CreateWorkingGroupRequest, Issue, IssueId, IssueStatus, RegistryEntry, WorkingGroup,
         WorkingGroupId,
     },
+    operations::{
+        HealthAvailability, HealthDegradedReason, HealthSignalRef, HealthTargetKind,
+        HealthTargetRef, OperationsActorRef, OperationsAuditAction, OperationsAuditEventV1,
+        OperationsAuditEvidence, OperationsAuditOutcome, OperationsEventEnvelope,
+        OperationsHealthEventV1, OperationsResourceRef, OperationsSourceSurface,
+        RedactionClassification, RunTimelineEventV1, RunTimelineStage, RunTimelineStatusReason,
+        UsageContractLink,
+    },
     policy::{BaselinePolicyEvaluator, PolicyDecision, PolicyDecisionRequest, PolicyEvaluator},
     usage::{
         CostReconciliationStatus, MeteringUnit, QuotaEnforcement, RemoteUsageReportV1,
@@ -47,6 +55,9 @@ struct Store {
     usage_reservations: Vec<UsageReservation>,
     usage_security_signals: Vec<UsageSecuritySignal>,
     remote_usage_reports: Vec<RemoteUsageReportV1>,
+    run_timeline_events: Vec<RunTimelineEventV1>,
+    operations_audit_events: Vec<OperationsAuditEventV1>,
+    operations_health_events: Vec<OperationsHealthEventV1>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -72,6 +83,18 @@ pub fn build_router(state: AppState) -> Router {
         .route("/v1/usage/events", post(create_usage_event))
         .route("/v1/remote/usage-reports", post(create_remote_usage_report))
         .route("/v1/audit/events", post(create_audit_event))
+        .route(
+            "/v1/operations/timeline/events",
+            post(create_run_timeline_event),
+        )
+        .route(
+            "/v1/operations/audit/events",
+            post(create_operations_audit_event),
+        )
+        .route(
+            "/v1/operations/health/events",
+            post(create_operations_health_event),
+        )
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
@@ -341,6 +364,78 @@ async fn create_audit_event(
     Ok((StatusCode::CREATED, Json(event)))
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/operations/timeline/events",
+    request_body = RunTimelineEventV1,
+    responses((status = 202, body = RunTimelineEventV1), (status = 400, body = ErrorResponse))
+)]
+async fn create_run_timeline_event(
+    State(state): State<AppState>,
+    Json(event): Json<RunTimelineEventV1>,
+) -> Result<(StatusCode, Json<RunTimelineEventV1>), ApiError> {
+    event
+        .validate_for_ingestion()
+        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+
+    state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal())?
+        .run_timeline_events
+        .push(event.clone());
+
+    Ok((StatusCode::ACCEPTED, Json(event)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/operations/audit/events",
+    request_body = OperationsAuditEventV1,
+    responses((status = 202, body = OperationsAuditEventV1), (status = 400, body = ErrorResponse))
+)]
+async fn create_operations_audit_event(
+    State(state): State<AppState>,
+    Json(event): Json<OperationsAuditEventV1>,
+) -> Result<(StatusCode, Json<OperationsAuditEventV1>), ApiError> {
+    event
+        .validate_for_ingestion()
+        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+
+    state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal())?
+        .operations_audit_events
+        .push(event.clone());
+
+    Ok((StatusCode::ACCEPTED, Json(event)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/operations/health/events",
+    request_body = OperationsHealthEventV1,
+    responses((status = 202, body = OperationsHealthEventV1), (status = 400, body = ErrorResponse))
+)]
+async fn create_operations_health_event(
+    State(state): State<AppState>,
+    Json(event): Json<OperationsHealthEventV1>,
+) -> Result<(StatusCode, Json<OperationsHealthEventV1>), ApiError> {
+    event
+        .validate_for_ingestion()
+        .map_err(|error| ApiError::bad_request(error.to_string()))?;
+
+    state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal())?
+        .operations_health_events
+        .push(event.clone());
+
+    Ok((StatusCode::ACCEPTED, Json(event)))
+}
+
 fn require_non_empty(field: &'static str, value: &str) -> Result<(), ApiError> {
     if value.trim().is_empty() {
         return Err(ApiError::bad_request(format!("{field} is required")));
@@ -412,7 +507,10 @@ impl IntoResponse for ApiError {
         evaluate_usage,
         create_usage_event,
         create_remote_usage_report,
-        create_audit_event
+        create_audit_event,
+        create_run_timeline_event,
+        create_operations_audit_event,
+        create_operations_health_event
     ),
     components(schemas(
         AuditEvent,
@@ -425,10 +523,28 @@ impl IntoResponse for ApiError {
         ErrorResponse,
         HealthResponse,
         Issue,
+        HealthAvailability,
+        HealthDegradedReason,
+        HealthSignalRef,
+        HealthTargetKind,
+        HealthTargetRef,
+        OperationsActorRef,
+        OperationsAuditAction,
+        OperationsAuditEventV1,
+        OperationsAuditEvidence,
+        OperationsAuditOutcome,
+        OperationsEventEnvelope,
+        OperationsHealthEventV1,
+        OperationsResourceRef,
+        OperationsSourceSurface,
         PolicyDecision,
         PolicyDecisionRequest,
+        RedactionClassification,
         RegistryEntry,
         RemoteUsageReportV1,
+        RunTimelineEventV1,
+        RunTimelineStage,
+        RunTimelineStatusReason,
         CostReconciliationStatus,
         MeteringUnit,
         QuotaEnforcement,
@@ -441,6 +557,7 @@ impl IntoResponse for ApiError {
         UsageLedgerEntry,
         UsageMeasurements,
         UsageReservation,
+        UsageContractLink,
         UsageResourceRef,
         UsageSecuritySignal,
         UsageSecuritySignalCode,
@@ -485,12 +602,19 @@ mod tests {
         assert!(document["paths"]["/v1/usage/events"].is_object());
         assert!(document["paths"]["/v1/remote/usage-reports"].is_object());
         assert!(document["paths"]["/v1/audit/events"].is_object());
+        assert!(document["paths"]["/v1/operations/timeline/events"].is_object());
+        assert!(document["paths"]["/v1/operations/audit/events"].is_object());
+        assert!(document["paths"]["/v1/operations/health/events"].is_object());
         assert!(
             document["components"]["schemas"]["PolicyDecision"]["properties"]["allowed"]
                 .is_object()
         );
         assert!(
             document["components"]["schemas"]["UsageAuditEventV1"]["properties"]["status"]
+                .is_object()
+        );
+        assert!(
+            document["components"]["schemas"]["RunTimelineEventV1"]["properties"]["stage"]
                 .is_object()
         );
         Ok(())
