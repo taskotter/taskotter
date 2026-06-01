@@ -10,7 +10,12 @@ async function readJson(relativePath) {
   return JSON.parse(source);
 }
 
-function validate(schema, value, location = schema.title ?? "value") {
+function validate(
+  schema,
+  value,
+  location = schema.title ?? "value",
+  root = schema,
+) {
   if (schema.const !== undefined) {
     assert.equal(value, schema.const, `${location} const mismatch`);
   }
@@ -48,6 +53,30 @@ function validate(schema, value, location = schema.title ?? "value") {
       `${location} pattern mismatch`,
     );
   }
+  if (schema.minLength !== undefined && typeof value === "string") {
+    assert.ok(
+      value.length >= schema.minLength,
+      `${location} must have minLength ${schema.minLength}`,
+    );
+  }
+  if (schema.minimum !== undefined && typeof value === "number") {
+    assert.ok(
+      value >= schema.minimum,
+      `${location} must be >= ${schema.minimum}`,
+    );
+  }
+  if (schema.maximum !== undefined && typeof value === "number") {
+    assert.ok(
+      value <= schema.maximum,
+      `${location} must be <= ${schema.maximum}`,
+    );
+  }
+  if (schema.minItems !== undefined && Array.isArray(value)) {
+    assert.ok(
+      value.length >= schema.minItems,
+      `${location} must have at least ${schema.minItems} items`,
+    );
+  }
   if (schema.required) {
     for (const key of schema.required) {
       assert.ok(Object.hasOwn(value, key), `${location}.${key} is required`);
@@ -76,16 +105,29 @@ function validate(schema, value, location = schema.title ?? "value") {
     for (const [key, childSchema] of Object.entries(schema.properties)) {
       if (Object.hasOwn(value, key))
         validate(
-          resolveRef(schema, childSchema),
+          resolveRef(root, childSchema),
           value[key],
           `${location}.${key}`,
+          root,
         );
     }
   }
   if (schema.items && Array.isArray(value)) {
     value.forEach((item, index) =>
-      validate(resolveRef(schema, schema.items), item, `${location}[${index}]`),
+      validate(
+        resolveRef(root, schema.items),
+        item,
+        `${location}[${index}]`,
+        root,
+      ),
     );
+  }
+  if (schema.allOf) {
+    for (const childSchema of schema.allOf) {
+      if (childSchema.if && schemaMatches(root, childSchema.if, value)) {
+        validate(childSchema.then, value, location, root);
+      }
+    }
   }
 }
 
@@ -96,6 +138,15 @@ function resolveRef(rootSchema, schema) {
   }
   const name = schema.$ref.slice("#/$defs/".length);
   return rootSchema.$defs[name];
+}
+
+function schemaMatches(rootSchema, schema, value) {
+  try {
+    validate(resolveRef(rootSchema, schema), value, "conditional", rootSchema);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 test("runtime fixtures match their canonical schemas", async () => {
@@ -112,11 +163,79 @@ test("runtime fixtures match their canonical schemas", async () => {
       "contracts/schemas/audit-event.schema.json",
       "contracts/fixtures/audit-event.policy-denied.json",
     ],
+    [
+      "contracts/schemas/workflow-definition.schema.json",
+      "contracts/fixtures/workflow-definition.automation-contract.json",
+    ],
   ];
 
   for (const [schemaPath, fixturePath] of cases) {
     validate(await readJson(schemaPath), await readJson(fixturePath));
   }
+});
+
+test("workflow contract captures automation safety requirements", async () => {
+  const workflow = await readJson(
+    "contracts/fixtures/workflow-definition.automation-contract.json",
+  );
+  const triggerTypes = new Set(
+    workflow.triggers.map((trigger) => trigger.type),
+  );
+
+  for (const triggerType of ["cron", "webhook", "internal_event"]) {
+    assert.ok(
+      triggerTypes.has(triggerType),
+      `${triggerType} trigger is required`,
+    );
+  }
+
+  const webhook = workflow.triggers.find(
+    (trigger) => trigger.type === "webhook",
+  ).webhook;
+  assert.equal(webhook.signature_verification.required, true);
+  assert.ok(
+    webhook.signature_verification.secret_ref.secret_ref.startsWith("sec_"),
+  );
+  assert.equal(webhook.replay_protection.required, true);
+  assert.ok(webhook.replay_protection.window_seconds >= 60);
+
+  const protectedSteps = workflow.jobs.flatMap((job) =>
+    job.steps.filter((step) => step.side_effect.classification === "protected"),
+  );
+  assert.ok(protectedSteps.length > 0, "fixture must include a protected step");
+  for (const step of protectedSteps) {
+    assert.ok(
+      step.approval_gate_ref,
+      `${step.id} requires approval before side effect`,
+    );
+    assert.ok(
+      workflow.approval_gates.some(
+        (gate) => gate.id === step.approval_gate_ref,
+      ),
+      `${step.id} approval gate must exist`,
+    );
+  }
+});
+
+test("workflow fixtures only carry secret and integration references", async () => {
+  const workflow = await readJson(
+    "contracts/fixtures/workflow-definition.automation-contract.json",
+  );
+  const serialized = JSON.stringify(workflow);
+  const forbiddenSecretShapes = [
+    /api[_-]?key/i,
+    /access[_-]?token/i,
+    /refresh[_-]?token/i,
+    /private[_-]?key/i,
+    /client[_-]?secret/i,
+    /bearer\s+[a-z0-9._-]+/i,
+  ];
+
+  for (const pattern of forbiddenSecretShapes) {
+    assert.doesNotMatch(serialized, pattern);
+  }
+  assert.match(serialized, /"secret_ref":"sec_/);
+  assert.match(serialized, /"integration_ref":"int_/);
 });
 
 test("generated schema artifacts mirror canonical schema sources", async () => {
