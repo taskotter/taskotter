@@ -242,6 +242,13 @@ pub enum OperationsValidationError {
     UnsafeRedaction(&'static str),
     #[error("type must be {0}")]
     UnsupportedType(&'static str),
+    #[error("{action} requires {field}")]
+    MissingEvidence {
+        action: &'static str,
+        field: &'static str,
+    },
+    #[error("{action} has an invalid outcome")]
+    InvalidOutcome { action: &'static str },
 }
 
 impl RunTimelineEventV1 {
@@ -265,6 +272,8 @@ impl OperationsAuditEventV1 {
         require_opaque_ref("id", &self.id, &["evt_"])?;
         self.envelope.validate()?;
         self.evidence.validate()?;
+        self.evidence
+            .validate_for_action(&self.action, &self.outcome)?;
         if let Some(usage_link) = &self.usage_link {
             usage_link.validate()?;
         }
@@ -303,9 +312,11 @@ impl OperationsEventEnvelope {
         }
         require_text("occurred_at", &self.occurred_at)?;
         require_opaque_ref("working_group_id", &self.working_group_id, &["wg_"])?;
-        if let Some(tenant_id) = &self.tenant_id {
-            require_opaque_ref("tenant_id", tenant_id, &["tenant_"])?;
-        }
+        let tenant_id = self
+            .tenant_id
+            .as_ref()
+            .ok_or(OperationsValidationError::Required("tenant_id"))?;
+        require_opaque_ref("tenant_id", tenant_id, &["tenant_"])?;
         require_opaque_ref("correlation_id", &self.correlation_id, &["corr_"])?;
         require_opaque_ref("request_id", &self.request_id, &["req_"])?;
         if let Some(run_id) = &self.run_id {
@@ -399,6 +410,83 @@ impl OperationsAuditEvidence {
         }
         Ok(())
     }
+
+    fn validate_for_action(
+        &self,
+        action: &OperationsAuditAction,
+        outcome: &OperationsAuditOutcome,
+    ) -> Result<(), OperationsValidationError> {
+        match action {
+            OperationsAuditAction::ProtectedOperationRequested => {
+                require_outcome(
+                    "protected_operation_requested",
+                    outcome,
+                    &[OperationsAuditOutcome::PendingApproval],
+                )?;
+                self.require_policy_decision_id("protected_operation_requested")?;
+                self.require_capability_ref("protected_operation_requested")?;
+            }
+            OperationsAuditAction::ProtectedOperationApproved => {
+                require_outcome(
+                    "protected_operation_approved",
+                    outcome,
+                    &[OperationsAuditOutcome::Succeeded],
+                )?;
+                self.require_approval_id("protected_operation_approved")?;
+                self.require_policy_decision_id("protected_operation_approved")?;
+                self.require_capability_ref("protected_operation_approved")?;
+            }
+            OperationsAuditAction::ProtectedOperationDenied => {
+                require_outcome(
+                    "protected_operation_denied",
+                    outcome,
+                    &[OperationsAuditOutcome::Denied],
+                )?;
+                self.require_policy_decision_id("protected_operation_denied")?;
+                self.require_capability_ref("protected_operation_denied")?;
+            }
+            OperationsAuditAction::CredentialAccess => {
+                self.require_policy_decision_id("credential_access")?;
+                self.require_secret_ref("credential_access")?;
+            }
+            OperationsAuditAction::PolicyDecision | OperationsAuditAction::HighCostUsage => {
+                self.require_policy_decision_id(action.as_static_str())?;
+            }
+            OperationsAuditAction::RunnerRegistration
+            | OperationsAuditAction::GatewayRegistration
+            | OperationsAuditAction::PrivateRunnerDispatch => {
+                self.require_capability_ref(action.as_static_str())?;
+            }
+            OperationsAuditAction::GlobalSharingChanged => {}
+        }
+        Ok(())
+    }
+
+    fn require_approval_id(&self, action: &'static str) -> Result<(), OperationsValidationError> {
+        require_evidence_field(action, "approval_id", self.approval_id.as_deref())
+    }
+
+    fn require_policy_decision_id(
+        &self,
+        action: &'static str,
+    ) -> Result<(), OperationsValidationError> {
+        require_evidence_field(
+            action,
+            "policy_decision_id",
+            self.policy_decision_id.as_deref(),
+        )
+    }
+
+    fn require_capability_ref(
+        &self,
+        action: &'static str,
+    ) -> Result<(), OperationsValidationError> {
+        require_evidence_field(action, "capability_ref", self.capability_ref.as_deref())
+    }
+
+    fn require_secret_ref(&self, action: &'static str) -> Result<(), OperationsValidationError> {
+        require_evidence_field(action, "secret_ref", self.secret_ref.as_deref())
+    }
 }
 
 impl HealthTargetRef {
@@ -460,14 +548,19 @@ fn reject_sensitive_pattern(
     let normalized = value.to_ascii_lowercase();
     let sensitive_markers = [
         "api_key",
-        "authorization:",
-        "bearer ",
-        "cookie:",
-        "password",
+        "apikey",
+        "access_token",
+        "refresh_token",
         "private_key",
-        "raw_artifact",
-        "raw_log",
+        "client_secret",
+        "bearer ",
+        "password",
         "raw_prompt",
+        "raw_log",
+        "artifact_body",
+        "-----begin",
+        "authorization:",
+        "cookie:",
         "secret=",
         "token",
     ];
@@ -478,6 +571,45 @@ fn reject_sensitive_pattern(
         return Err(OperationsValidationError::SensitivePattern { field });
     }
     Ok(())
+}
+
+fn require_outcome(
+    action: &'static str,
+    actual: &OperationsAuditOutcome,
+    allowed: &[OperationsAuditOutcome],
+) -> Result<(), OperationsValidationError> {
+    if !allowed.contains(actual) {
+        return Err(OperationsValidationError::InvalidOutcome { action });
+    }
+    Ok(())
+}
+
+fn require_evidence_field(
+    action: &'static str,
+    field: &'static str,
+    value: Option<&str>,
+) -> Result<(), OperationsValidationError> {
+    match value {
+        Some(value) if !value.trim().is_empty() => Ok(()),
+        _ => Err(OperationsValidationError::MissingEvidence { action, field }),
+    }
+}
+
+impl OperationsAuditAction {
+    fn as_static_str(&self) -> &'static str {
+        match self {
+            OperationsAuditAction::CredentialAccess => "credential_access",
+            OperationsAuditAction::PolicyDecision => "policy_decision",
+            OperationsAuditAction::GlobalSharingChanged => "global_sharing_changed",
+            OperationsAuditAction::HighCostUsage => "high_cost_usage",
+            OperationsAuditAction::RunnerRegistration => "runner_registration",
+            OperationsAuditAction::GatewayRegistration => "gateway_registration",
+            OperationsAuditAction::PrivateRunnerDispatch => "private_runner_dispatch",
+            OperationsAuditAction::ProtectedOperationRequested => "protected_operation_requested",
+            OperationsAuditAction::ProtectedOperationApproved => "protected_operation_approved",
+            OperationsAuditAction::ProtectedOperationDenied => "protected_operation_denied",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -547,6 +679,17 @@ mod tests {
     }
 
     #[test]
+    fn envelope_requires_tenant_scope_invariant() {
+        let mut missing_tenant = envelope();
+        missing_tenant.tenant_id = None;
+
+        assert_eq!(
+            missing_tenant.validate(),
+            Err(OperationsValidationError::Required("tenant_id"))
+        );
+    }
+
+    #[test]
     fn audit_event_rejects_public_or_sensitive_evidence() {
         let mut event = OperationsAuditEventV1 {
             id: "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EB".to_owned(),
@@ -581,6 +724,105 @@ mod tests {
                 field: "secret_ref"
             })
         );
+    }
+
+    #[test]
+    fn audit_evidence_rejects_usage_level_sensitive_patterns() {
+        let mut event = OperationsAuditEventV1 {
+            id: "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2ED".to_owned(),
+            r#type: "operations.audit.recorded".to_owned(),
+            envelope: envelope(),
+            action: OperationsAuditAction::CredentialAccess,
+            outcome: OperationsAuditOutcome::Denied,
+            evidence: OperationsAuditEvidence {
+                evidence_id: "evidence_01J9Z4P4BS0M9P2QJ6T8Z6W2ED".to_owned(),
+                policy_decision_id: Some("poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2ED".to_owned()),
+                approval_id: None,
+                capability_ref: Some("cap_high_risk_runtime".to_owned()),
+                secret_ref: Some("secret_01J9Z4P4BS0M9P2QJ6T8Z6W2ED".to_owned()),
+                integration_ref: Some("integration_01J9Z4P4BS0M9P2QJ6T8Z6W2ED".to_owned()),
+            },
+            usage_link: None,
+        };
+
+        event.evidence.capability_ref = Some("cap_client_secret_runtime".to_owned());
+        assert_eq!(
+            event.validate_for_ingestion(),
+            Err(OperationsValidationError::SensitivePattern {
+                field: "capability_ref"
+            })
+        );
+
+        event.evidence.capability_ref = Some("cap_high_risk_runtime".to_owned());
+        event.evidence.integration_ref = Some("integration_artifact_body_ref".to_owned());
+        assert_eq!(
+            event.validate_for_ingestion(),
+            Err(OperationsValidationError::SensitivePattern {
+                field: "integration_ref"
+            })
+        );
+
+        event.evidence.integration_ref = Some("integration_01J9Z4P4BS0M9P2QJ6T8Z6W2ED".to_owned());
+        event.envelope.occurred_at = "-----BEGIN PRIVATE KEY-----".to_owned();
+        assert_eq!(
+            event.validate_for_ingestion(),
+            Err(OperationsValidationError::SensitivePattern {
+                field: "occurred_at"
+            })
+        );
+    }
+
+    #[test]
+    fn protected_operation_evidence_is_action_aware() {
+        let mut event = OperationsAuditEventV1 {
+            id: "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EE".to_owned(),
+            r#type: "operations.audit.recorded".to_owned(),
+            envelope: envelope(),
+            action: OperationsAuditAction::ProtectedOperationRequested,
+            outcome: OperationsAuditOutcome::PendingApproval,
+            evidence: OperationsAuditEvidence {
+                evidence_id: "evidence_01J9Z4P4BS0M9P2QJ6T8Z6W2EE".to_owned(),
+                policy_decision_id: Some("poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EE".to_owned()),
+                approval_id: None,
+                capability_ref: Some("cap_high_risk_runtime".to_owned()),
+                secret_ref: None,
+                integration_ref: None,
+            },
+            usage_link: None,
+        };
+
+        assert_eq!(event.validate_for_ingestion(), Ok(()));
+
+        event.evidence.capability_ref = None;
+        assert_eq!(
+            event.validate_for_ingestion(),
+            Err(OperationsValidationError::MissingEvidence {
+                action: "protected_operation_requested",
+                field: "capability_ref"
+            })
+        );
+
+        event.evidence.capability_ref = Some("cap_high_risk_runtime".to_owned());
+        event.action = OperationsAuditAction::ProtectedOperationApproved;
+        event.outcome = OperationsAuditOutcome::PendingApproval;
+        assert_eq!(
+            event.validate_for_ingestion(),
+            Err(OperationsValidationError::InvalidOutcome {
+                action: "protected_operation_approved"
+            })
+        );
+
+        event.outcome = OperationsAuditOutcome::Succeeded;
+        assert_eq!(
+            event.validate_for_ingestion(),
+            Err(OperationsValidationError::MissingEvidence {
+                action: "protected_operation_approved",
+                field: "approval_id"
+            })
+        );
+
+        event.evidence.approval_id = Some("approval_01J9Z4P4BS0M9P2QJ6T8Z6W2EE".to_owned());
+        assert_eq!(event.validate_for_ingestion(), Ok(()));
     }
 
     #[test]
