@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -337,7 +338,7 @@ impl UsageContractLink {
             require_opaque_ref("usage_event_id", usage_event_id, &["evt_"])?;
         }
         if let Some(ledger_entry_id) = &self.ledger_entry_id {
-            require_opaque_ref("ledger_entry_id", ledger_entry_id, &["ledger_"])?;
+            require_uuid_ref("ledger_entry_id", ledger_entry_id)?;
         }
         if let Some(reservation_id) = &self.reservation_id {
             require_opaque_ref("reservation_id", reservation_id, &["resv_"])?;
@@ -528,6 +529,15 @@ fn require_opaque_ref(
     Ok(())
 }
 
+fn require_uuid_ref(field: &'static str, value: &str) -> Result<(), OperationsValidationError> {
+    if value.trim().is_empty() {
+        return Err(OperationsValidationError::Required(field));
+    }
+    reject_sensitive_pattern(field, value)?;
+    Uuid::parse_str(value).map_err(|_| OperationsValidationError::InvalidReference { field })?;
+    Ok(())
+}
+
 fn require_health_target_ref(
     field: &'static str,
     kind: &HealthTargetKind,
@@ -614,6 +624,8 @@ impl OperationsAuditAction {
 
 #[cfg(test)]
 mod tests {
+    use crate::usage::UsageAuditEventV1;
+
     use super::*;
 
     fn envelope() -> OperationsEventEnvelope {
@@ -649,7 +661,7 @@ mod tests {
             status_reason: Some(RunTimelineStatusReason::PolicyDenied),
             usage_link: Some(UsageContractLink {
                 usage_event_id: Some("evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP".to_owned()),
-                ledger_entry_id: Some("ledger_01J9Z4P4BS0M9P2QJ6T8Z6W2EP".to_owned()),
+                ledger_entry_id: Some("018f30d5-9471-7c4c-85c4-0e14c3f76c03".to_owned()),
                 reservation_id: Some("resv_01J9Z4P4BS0M9P2QJ6T8Z6W2EP".to_owned()),
                 policy_decision_id: Some("poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP".to_owned()),
             }),
@@ -657,6 +669,51 @@ mod tests {
         };
 
         assert_eq!(event.validate_for_ingestion(), Ok(()));
+    }
+
+    #[test]
+    fn operations_link_accepts_actual_usage_ledger_uuid_losslessly()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let usage_event: UsageAuditEventV1 = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/usage-event.gateway-request.json"
+        ))?;
+        let ledger_entry = usage_event.to_ledger_entry()?;
+        let ledger_entry_id = ledger_entry.ledger_entry_id.to_string();
+        let event = RunTimelineEventV1 {
+            id: "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2EF".to_owned(),
+            r#type: "operations.timeline.recorded".to_owned(),
+            envelope: envelope(),
+            stage: RunTimelineStage::Completed,
+            status_reason: Some(RunTimelineStatusReason::Completed),
+            usage_link: Some(UsageContractLink {
+                usage_event_id: Some(ledger_entry.event_id),
+                ledger_entry_id: Some(ledger_entry_id.clone()),
+                reservation_id: ledger_entry.reservation_id,
+                policy_decision_id: Some(ledger_entry.policy_decision_id),
+            }),
+            health_signal: None,
+        };
+
+        assert_eq!(event.validate_for_ingestion(), Ok(()));
+        assert_eq!(
+            event
+                .usage_link
+                .as_ref()
+                .and_then(|link| link.ledger_entry_id.as_ref()),
+            Some(&ledger_entry_id)
+        );
+
+        let mut invalid = event.clone();
+        if let Some(usage_link) = invalid.usage_link.as_mut() {
+            usage_link.ledger_entry_id = Some("ledger_01J9Z4P4BS0M9P2QJ6T8Z6W2EP".to_owned());
+        }
+        assert_eq!(
+            invalid.validate_for_ingestion(),
+            Err(OperationsValidationError::InvalidReference {
+                field: "ledger_entry_id"
+            })
+        );
+        Ok(())
     }
 
     #[test]
