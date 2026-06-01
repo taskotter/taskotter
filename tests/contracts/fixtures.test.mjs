@@ -211,6 +211,18 @@ test("runtime fixtures match their canonical schemas", async () => {
       "contracts/fixtures/audit-event.policy-denied.json",
     ],
     [
+      "contracts/schemas/policy-decision.schema.json",
+      "contracts/fixtures/policy-decision.deny.high-risk-runtime.json",
+    ],
+    [
+      "contracts/schemas/usage-event.schema.json",
+      "contracts/fixtures/usage-event.high-risk-runtime-denied.json",
+    ],
+    [
+      "contracts/schemas/audit-event.schema.json",
+      "contracts/fixtures/audit-event.high-risk-runtime-denied.json",
+    ],
+    [
       "contracts/schemas/workflow-definition.schema.json",
       "contracts/fixtures/workflow-definition.automation-contract.json",
     ],
@@ -219,6 +231,30 @@ test("runtime fixtures match their canonical schemas", async () => {
   for (const [schemaPath, fixturePath] of cases) {
     validate(await readJson(schemaPath), await readJson(fixturePath));
   }
+});
+
+test("high-risk runtime fixtures stay deny-by-default and metered by capability", async () => {
+  const decision = await readJson(
+    "contracts/fixtures/policy-decision.deny.high-risk-runtime.json",
+  );
+  const usage = await readJson(
+    "contracts/fixtures/usage-event.high-risk-runtime-denied.json",
+  );
+  const audit = await readJson(
+    "contracts/fixtures/audit-event.high-risk-runtime-denied.json",
+  );
+  const [gate] = decision.constraints.high_risk_capabilities;
+
+  assert.equal(decision.effect, "deny");
+  assert.equal(gate.enabled, false);
+  assert.equal(gate.effect, "deny");
+  assert.equal(gate.capability, "gateway.hosted_mcp_billing");
+  assert.equal(gate.feature_flag, "gateway.hosted_mcp_billing.enabled");
+  assert.equal(usage.payload.measurements.runtime_capability, gate.capability);
+  assert.equal(usage.payload.measurements.metering_unit, gate.metering_unit);
+  assert.equal(audit.payload.runtime_capability, gate.capability);
+  assert.equal(audit.payload.feature_flag, gate.feature_flag);
+  assert.equal(audit.policy_decision_id, decision.decision_id);
 });
 
 test("workflow contract captures automation safety requirements", async () => {

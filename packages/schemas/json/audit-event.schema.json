@@ -82,6 +82,15 @@
             "succeeded",
             "failed"
           ]
+        },
+        "runtime_capability": {
+          "$ref": "#/$defs/highRiskRuntimeCapability"
+        },
+        "feature_flag": {
+          "type": "string"
+        },
+        "approval_ref": {
+          "type": "string"
         }
       }
     }
@@ -123,6 +132,17 @@
           "type": "string"
         }
       }
+    },
+    "highRiskRuntimeCapability": {
+      "type": "string",
+      "enum": [
+        "remote.local_tool_execution",
+        "remote.local_llm_exposure",
+        "remote.external_agent_runtime_adapter",
+        "remote.computer_use_execution",
+        "gateway.hosted_mcp_billing",
+        "gateway.sensitive_provider_routing"
+      ]
     }
   }
 }
