@@ -111,6 +111,7 @@ pub enum GatewayRoutingReasonCode {
 #[serde(deny_unknown_fields)]
 pub struct ClientSafeGatewayRelayEvent {
     pub version: String,
+    #[serde(rename = "type")]
     pub event_type: ClientSafeGatewayRelayEventType,
     pub request_id: String,
     pub correlation_id: String,
@@ -124,15 +125,22 @@ pub struct ClientSafeGatewayRelayEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
 pub enum ClientSafeGatewayRelayEventType {
+    #[serde(rename = "gateway.relay.started")]
     Started,
+    #[serde(rename = "gateway.relay.output_delta")]
     OutputDelta,
+    #[serde(rename = "gateway.relay.tool_call_delta")]
     ToolCallDelta,
+    #[serde(rename = "gateway.relay.usage_estimate")]
     UsageEstimate,
+    #[serde(rename = "gateway.relay.completed")]
     Completed,
+    #[serde(rename = "gateway.relay.cancelled")]
     Cancelled,
+    #[serde(rename = "gateway.relay.failed")]
     Failed,
+    #[serde(rename = "gateway.relay.denied")]
     Denied,
 }
 
@@ -167,6 +175,7 @@ pub enum ClientSafeGatewayRelayPayload {
         reason_code: GatewayTerminalReasonCode,
         safe_message: String,
         retryable: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         upstream_status: Option<u16>,
     },
 }
@@ -360,6 +369,7 @@ fn require_client_safe_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{Value, json};
 
     fn base_input(event: GatewayNormalizedStreamEvent, sequence: u32) -> GatewayStreamRelayInput {
         GatewayStreamRelayInput {
@@ -375,6 +385,12 @@ mod tests {
                 policy_decision_id: Some("poldec_gateway_stream_1".to_owned()),
             }),
         }
+    }
+
+    fn relay_fixture_events() -> Result<Vec<Value>, Box<dyn std::error::Error>> {
+        Ok(serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/gateway-relay-events.json"
+        ))?)
     }
 
     #[test]
@@ -451,11 +467,141 @@ mod tests {
     }
 
     #[test]
+    fn mapper_output_serializes_to_gateway_relay_contract_fixture()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let inputs = [
+            GatewayStreamRelayInput {
+                request_id: "req_gateway_stream_1".to_owned(),
+                correlation_id: "corr_gateway_stream_1".to_owned(),
+                sequence: 0,
+                provider: "openai-compatible".to_owned(),
+                model: "test-model".to_owned(),
+                event: GatewayNormalizedStreamEvent::Started,
+                route: Some(GatewayRouteEvidence {
+                    route_type: GatewayRouteType::Primary,
+                    reason_code: GatewayRoutingReasonCode::CapabilityMatch,
+                    policy_decision_id: Some("poldec_gateway_stream_1".to_owned()),
+                }),
+            },
+            GatewayStreamRelayInput {
+                request_id: "req_gateway_stream_1".to_owned(),
+                correlation_id: "corr_gateway_stream_1".to_owned(),
+                sequence: 1,
+                provider: "openai-compatible".to_owned(),
+                model: "test-model".to_owned(),
+                event: GatewayNormalizedStreamEvent::OutputDelta {
+                    text: "Hello".to_owned(),
+                },
+                route: None,
+            },
+            GatewayStreamRelayInput {
+                request_id: "req_gateway_stream_1".to_owned(),
+                correlation_id: "corr_gateway_stream_1".to_owned(),
+                sequence: 2,
+                provider: "openai-compatible".to_owned(),
+                model: "test-model".to_owned(),
+                event: GatewayNormalizedStreamEvent::ToolCallDelta {
+                    tool_call_id: "call_1".to_owned(),
+                    name: "lookup_status".to_owned(),
+                    arguments_delta: "{\"issue\":\"BOG-538\"}".to_owned(),
+                },
+                route: None,
+            },
+            GatewayStreamRelayInput {
+                request_id: "req_gateway_stream_1".to_owned(),
+                correlation_id: "corr_gateway_stream_1".to_owned(),
+                sequence: 3,
+                provider: "openai-compatible".to_owned(),
+                model: "test-model".to_owned(),
+                event: GatewayNormalizedStreamEvent::UsageEstimate {
+                    input_tokens: Some(20),
+                    output_tokens: Some(4),
+                    total_tokens: Some(24),
+                    estimated_cost_micros: Some(30),
+                },
+                route: None,
+            },
+            GatewayStreamRelayInput {
+                request_id: "req_gateway_stream_1".to_owned(),
+                correlation_id: "corr_gateway_stream_1".to_owned(),
+                sequence: 4,
+                provider: "openai-compatible".to_owned(),
+                model: "test-model".to_owned(),
+                event: GatewayNormalizedStreamEvent::Completed {
+                    finish_reason: GatewayFinishReason::Stop,
+                },
+                route: None,
+            },
+            GatewayStreamRelayInput {
+                request_id: "req_gateway_stream_2".to_owned(),
+                correlation_id: "corr_gateway_stream_2".to_owned(),
+                sequence: 0,
+                provider: "openai-compatible".to_owned(),
+                model: "test-model".to_owned(),
+                event: GatewayNormalizedStreamEvent::Cancelled {
+                    reason_code: GatewayTerminalReasonCode::ClientCancelled,
+                    safe_message: "Request cancelled by the user.".to_owned(),
+                },
+                route: None,
+            },
+            GatewayStreamRelayInput {
+                request_id: "req_gateway_stream_3".to_owned(),
+                correlation_id: "corr_gateway_stream_3".to_owned(),
+                sequence: 0,
+                provider: "openai-compatible".to_owned(),
+                model: "test-model".to_owned(),
+                event: GatewayNormalizedStreamEvent::Failed {
+                    reason_code: GatewayTerminalReasonCode::ProviderRateLimited,
+                    safe_message: "Provider rate limit reached.".to_owned(),
+                    retryable: true,
+                    upstream_status: Some(429),
+                },
+                route: Some(GatewayRouteEvidence {
+                    route_type: GatewayRouteType::Fallback,
+                    reason_code: GatewayRoutingReasonCode::FallbackAfterError,
+                    policy_decision_id: Some("poldec_gateway_stream_3".to_owned()),
+                }),
+            },
+            GatewayStreamRelayInput {
+                request_id: "req_gateway_stream_4".to_owned(),
+                correlation_id: "corr_gateway_stream_4".to_owned(),
+                sequence: 0,
+                provider: "openai-compatible".to_owned(),
+                model: "test-model".to_owned(),
+                event: GatewayNormalizedStreamEvent::Denied {
+                    reason_code: GatewayTerminalReasonCode::PolicyDenied,
+                    safe_message: "Request denied by policy.".to_owned(),
+                },
+                route: Some(GatewayRouteEvidence {
+                    route_type: GatewayRouteType::PolicyDenied,
+                    reason_code: GatewayRoutingReasonCode::PolicyDenied,
+                    policy_decision_id: Some("poldec_gateway_stream_4".to_owned()),
+                }),
+            },
+        ];
+
+        let mapped = inputs
+            .into_iter()
+            .map(|input| {
+                input.into_client_safe_event().and_then(|event| {
+                    serde_json::to_value(event)
+                        .map_err(|_| GatewayRelayMappingError::Required("serialized_event"))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        assert_eq!(mapped, relay_fixture_events()?);
+        assert_eq!(mapped[0]["type"], json!("gateway.relay.started"));
+        assert!(mapped[0].get("event_type").is_none());
+        Ok(())
+    }
+
+    #[test]
     fn rejects_sensitive_provider_metadata_before_relay() {
         let input = base_input(
             GatewayNormalizedStreamEvent::Failed {
                 reason_code: GatewayTerminalReasonCode::InternalGatewayError,
-                safe_message: "authorization: bearer token leaked".to_owned(),
+                safe_message: "Authorization: Bearer token leaked".to_owned(),
                 retryable: false,
                 upstream_status: Some(500),
             },

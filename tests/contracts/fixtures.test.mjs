@@ -505,19 +505,31 @@ test("gateway relay fixture covers client-safe streaming state mapping", async (
 });
 
 test("gateway relay schema rejects sensitive provider details", async () => {
-  const schema = await readJson(
-    "contracts/schemas/gateway-relay-event.schema.json",
-  );
   const [started] = await readJson("contracts/fixtures/gateway-relay-events.json");
-  const unsafe = structuredClone(started);
-  unsafe.payload = {
-    kind: "terminal",
-    reason_code: "internal_gateway_error",
-    safe_message: "authorization: bearer token leaked",
-    retryable: false,
-  };
+  const schemas = [
+    await readJson("contracts/schemas/gateway-relay-event.schema.json"),
+    await readJson("packages/schemas/json/gateway-relay-event.schema.json"),
+  ];
 
-  assert.throws(() => validate(schema, unsafe), /must match exactly one schema/);
+  for (const schema of schemas) {
+    for (const safeMessage of [
+      "authorization: bearer token leaked",
+      "Authorization: Bearer token leaked",
+    ]) {
+      const unsafe = structuredClone(started);
+      unsafe.payload = {
+        kind: "terminal",
+        reason_code: "internal_gateway_error",
+        safe_message: safeMessage,
+        retryable: false,
+      };
+
+      assert.throws(
+        () => validate(schema, unsafe),
+        /must match exactly one schema/,
+      );
+    }
+  }
 });
 
 test("policy decisions require provenance and audit correlation fields", async () => {
