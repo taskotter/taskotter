@@ -56,6 +56,16 @@ describe("i18n resource smoke fixtures", () => {
     expect(i18n.plural("issues.row.comments", 3)).toBe("3 comments");
   });
 
+  it("keeps interpolation placeholders stable in pseudo-localized strings", () => {
+    const i18n = createI18n(
+      resolveLocalePreferences({ userLanguage: "en-XA" }),
+    );
+
+    expect(
+      i18n.t("issues.run.usageDetail", { durationMs: 1200, toolCount: 2 }),
+    ).toBe("[!! 1200ms, 2 tõõls !!]");
+  });
+
   it("formats dates with explicit formatting locale and timezone", () => {
     const i18n = createI18n(
       resolveLocalePreferences({
@@ -68,5 +78,16 @@ describe("i18n resource smoke fixtures", () => {
     expect(i18n.formatDateTime("2026-06-01T12:30:00Z")).toMatch(
       /Jun 01, 12:30 PM/,
     );
+  });
+
+  it("formats numbers with the locale preference separate from content locale", () => {
+    const i18n = createI18n(
+      resolveLocalePreferences({
+        userLanguage: "en-XA",
+        formattingLocale: "de-DE",
+      }),
+    );
+
+    expect(i18n.formatNumber(1200)).toBe("1.200");
   });
 });

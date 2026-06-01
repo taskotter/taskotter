@@ -103,3 +103,41 @@ test("issue row metadata chips stay visible inside the workspace", async ({
     chipsInsideSurface: true,
   });
 });
+
+test("pseudo locale renders system copy and de-DE formatting while preserving user-authored issue content", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      "taskotter.localePreferences",
+      JSON.stringify({ userLanguage: "en-XA", formattingLocale: "de-DE" }),
+    );
+  });
+
+  await page.goto("/");
+
+  await expect(
+    page.getByRole("main", { name: /\[!! Ïssüë õpëràtïõns !!\]/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: /\[!! Wõrkïng Grõüp sëtüp pàth !!\]/,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /\[!! Àgënt rün prõgrëss !!\]/ }),
+  ).toBeVisible();
+  await expect(page.getByText(/30\. Mai, 09:04/).first()).toBeVisible();
+  await expect(page.getByText(/\[!! 1\.200ms, 2 tõõls !!\]/)).toBeVisible();
+
+  await expect(
+    page.getByRole("heading", {
+      name: "Build MVP app shell, issue workspace, and focus panel UI",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Use the UX/IA design comment and QA gate as the implementation source. Keep API contracts replaceable until BOG-425 lands.",
+    ),
+  ).toBeVisible();
+});

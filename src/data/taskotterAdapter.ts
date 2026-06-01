@@ -5,21 +5,45 @@ import {
 import type {
   Comment,
   ConsoleData,
+  DisplayText,
   IssueDetail,
   IssueStatus,
   IssueSummary,
+  LocalizedText,
   RunStatus,
   RunStep,
   SetupStep,
   TaskOtterDataAdapter,
   WorkingGroup,
 } from "./contracts";
-import { createI18n, resolveLocalePreferences } from "../i18n";
+import type { LocalePreferences } from "../i18n";
 import { taskotterConsoleFixture } from "./taskotterFixtures";
+
+const localePreferenceStorageKey = "taskotter.localePreferences";
+
+function readStoredLocalePreferences(): Partial<LocalePreferences> {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const stored = window.localStorage.getItem(localePreferenceStorageKey);
+    if (!stored) return {};
+    const parsed = JSON.parse(stored);
+    if (typeof parsed !== "object" || parsed === null) return {};
+
+    return parsed as Partial<LocalePreferences>;
+  } catch {
+    return {};
+  }
+}
 
 export class FixtureTaskOtterDataAdapter implements TaskOtterDataAdapter {
   async getConsoleData(): Promise<ConsoleData> {
-    return structuredClone(taskotterConsoleFixture);
+    const data = structuredClone(taskotterConsoleFixture);
+    data.localePreferences = {
+      ...data.localePreferences,
+      ...readStoredLocalePreferences(),
+    };
+    return data;
   }
 }
 
@@ -173,11 +197,35 @@ function asPage<T>(value: unknown): Page<T> {
   return value as Page<T>;
 }
 
-function formatTimestamp(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.valueOf())) return value;
+function localized(
+  key: LocalizedText["key"],
+  values?: LocalizedText["values"],
+) {
+  return { key, values } satisfies LocalizedText;
+}
 
-  return createI18n(resolveLocalePreferences()).formatDateTime(date);
+function displayText(text: string): DisplayText {
+  return { text };
+}
+
+function dateTime(value: string): DisplayText {
+  return { dateTime: value };
+}
+
+function numberValue(value: number): DisplayText {
+  return { number: value };
+}
+
+function resourceStatusText(status: ScopedResource["status"]): LocalizedText {
+  return localized(
+    `commonErrors.resourceStatus.${status}` as LocalizedText["key"],
+  );
+}
+
+function timestampText(value: string): DisplayText {
+  return Number.isNaN(new Date(value).valueOf())
+    ? displayText(value)
+    : dateTime(value);
 }
 
 function displayKey(id: string): string {
@@ -186,7 +234,7 @@ function displayKey(id: string): string {
 }
 
 function actorLabel(actor?: ActorRef, agents: ScopedResource[] = []): string {
-  if (!actor) return "Unassigned";
+  if (!actor) return "";
   const agent = agents.find((candidate) => candidate.id === actor.id);
   if (agent) return agent.name;
 
@@ -226,9 +274,9 @@ function mapRunStatus(status: ControlPlaneIssue["status"]): RunStatus {
 function groupIssue(
   status: ControlPlaneIssue["status"],
 ): IssueSummary["group"] {
-  if (status === "blocked" || status === "cancelled") return "Blocked";
-  if (status === "in_review" || status === "done") return "Needs review";
-  return "Assigned";
+  if (status === "blocked" || status === "cancelled") return "blocked";
+  if (status === "in_review" || status === "done") return "needs_review";
+  return "assigned";
 }
 
 function policyStateForIssue(
@@ -293,7 +341,7 @@ function mapComments(
       author: actorLabel(comment.author, agents),
       role: comment.author.type === "user" ? "human" : "agent",
       body: comment.body,
-      createdAt: formatTimestamp(comment.created_at),
+      createdAt: timestampText(comment.created_at),
     }));
 }
 
@@ -323,29 +371,32 @@ function mapSetupSteps(snapshot: GeneratedConsoleSnapshot): SetupStep[] {
   return [
     {
       id: "wg",
-      title: "Working Group basics",
+      title: localized("issues.setup.step.wg.title"),
       state: workingGroup ? "complete" : "locked",
       detail: workingGroup
-        ? `${workingGroup.name} scope is available from the control plane.`
-        : "Waiting for Working Group scope.",
+        ? localized("issues.setup.step.wg.available", {
+            name: workingGroup.name,
+          })
+        : localized("issues.setup.step.wg.waiting"),
     },
     {
       id: "provider",
-      title: "Provider route",
+      title: localized("issues.setup.step.provider.title"),
       state:
         activeProviders.length > 0
           ? "complete"
           : disabledProviders.length > 0
             ? "error"
             : "locked",
-      detail:
-        activeProviders[0]?.name ??
-        disabledProviders[0]?.name ??
-        "No provider route reported.",
+      detail: activeProviders[0]?.name
+        ? displayText(activeProviders[0].name)
+        : disabledProviders[0]?.name
+          ? displayText(disabledProviders[0].name)
+          : localized("issues.setup.step.provider.none"),
     },
     {
       id: "limits",
-      title: "Policy and usage limits",
+      title: localized("issues.setup.step.limits.title"),
       state: snapshot.auditEvents.data.some(
         (event) => event.payload.outcome === "denied",
       )
@@ -354,14 +405,20 @@ function mapSetupSteps(snapshot: GeneratedConsoleSnapshot): SetupStep[] {
           ? "active"
           : "locked",
       detail: gatewayUsage
-        ? `${gatewayUsage.payload.measurements.duration_ms}ms gateway request recorded.`
-        : "Waiting for usage telemetry.",
+        ? localized("issues.setup.step.limits.usage", {
+            durationMs: numberValue(
+              gatewayUsage.payload.measurements.duration_ms,
+            ),
+          })
+        : localized("issues.setup.step.limits.waiting"),
     },
     {
       id: "runner",
-      title: "Runner option",
+      title: localized("issues.setup.step.runner.title"),
       state: activeIntegrations.length > 0 ? "active" : "locked",
-      detail: activeIntegrations[0]?.name ?? "Runner integration unavailable.",
+      detail: activeIntegrations[0]?.name
+        ? displayText(activeIntegrations[0].name)
+        : localized("issues.setup.step.runner.unavailable"),
     },
   ];
 }
@@ -378,56 +435,79 @@ function mapRunSteps(snapshot: GeneratedConsoleSnapshot): RunStep[] {
   return [
     {
       id: "issue-state",
-      label: selectedIssue ? displayKey(selectedIssue.id) : "Issue queue",
+      label: selectedIssue
+        ? displayText(displayKey(selectedIssue.id))
+        : localized("issues.run.issueQueue"),
       status: selectedIssue ? mapRunStatus(selectedIssue.status) : "queued",
       timestamp: selectedIssue
-        ? formatTimestamp(selectedIssue.updated_at)
-        : "pending",
-      detail: selectedIssue?.title ?? "Waiting for generated issue payloads.",
+        ? timestampText(selectedIssue.updated_at)
+        : localized("issues.empty.pending"),
+      detail: selectedIssue?.title
+        ? displayText(selectedIssue.title)
+        : localized("issues.run.waitingIssuePayloads"),
       severity: selectedIssue?.status === "blocked" ? "danger" : "info",
     },
     {
       id: "workflow-state",
-      label: workflow?.name ?? "Workflow scope",
+      label: workflow?.name
+        ? displayText(workflow.name)
+        : localized("issues.run.workflowScope"),
       status: workflow?.status === "active" ? "running" : "queued",
-      timestamp: workflow ? formatTimestamp(workflow.created_at) : "pending",
+      timestamp: workflow
+        ? timestampText(workflow.created_at)
+        : localized("issues.empty.pending"),
       detail: workflow
-        ? `Workflow is ${workflow.status}.`
-        : "No workflow has been returned yet.",
+        ? localized("issues.run.workflowState", {
+            status: resourceStatusText(workflow.status),
+          })
+        : localized("issues.run.workflowMissing"),
       severity: workflow?.status === "active" ? "info" : "neutral",
     },
     {
       id: "policy-state",
-      label: "Policy decision",
+      label: localized("issues.run.policyDecision"),
       status: deniedAudit ? "waiting_approval" : "completed",
       timestamp: deniedAudit
-        ? formatTimestamp(deniedAudit.occurred_at)
-        : "ready",
+        ? timestampText(deniedAudit.occurred_at)
+        : localized("commonErrors.status.completed"),
       detail: deniedAudit
-        ? deniedAudit.payload.action
-        : "No denied control-plane audit event.",
+        ? displayText(deniedAudit.payload.action)
+        : localized("issues.run.noDeniedAudit"),
       severity: deniedAudit ? "warning" : "success",
     },
     {
       id: "usage-state",
-      label: usage?.payload.subject.type ?? "Usage telemetry",
+      label: usage?.payload.subject.type
+        ? displayText(usage.payload.subject.type)
+        : localized("issues.run.usageTelemetry"),
       status: usage ? "completed" : "queued",
-      timestamp: usage ? formatTimestamp(usage.occurred_at) : "pending",
+      timestamp: usage
+        ? timestampText(usage.occurred_at)
+        : localized("issues.empty.pending"),
       detail: usage
-        ? `${usage.payload.measurements.duration_ms}ms, ${usage.payload.measurements.tool_invocations ?? 0} tools`
-        : "Waiting for usage event payloads.",
+        ? localized("issues.run.usageDetail", {
+            durationMs: numberValue(usage.payload.measurements.duration_ms),
+            toolCount: numberValue(
+              usage.payload.measurements.tool_invocations ?? 0,
+            ),
+          })
+        : localized("issues.run.waitingUsage"),
       severity: usage ? "success" : "neutral",
     },
     {
       id: "runner-state",
-      label: runnerIntegration?.name ?? "Runner integration",
+      label: runnerIntegration?.name
+        ? displayText(runnerIntegration.name)
+        : localized("issues.run.runnerIntegration"),
       status: runnerIntegration?.status === "active" ? "running" : "failed",
       timestamp: runnerIntegration
-        ? formatTimestamp(runnerIntegration.created_at)
-        : "unavailable",
+        ? timestampText(runnerIntegration.created_at)
+        : localized("issues.empty.unavailable"),
       detail: runnerIntegration
-        ? `Integration is ${runnerIntegration.status}.`
-        : "No runner integration was returned.",
+        ? localized("issues.run.integrationState", {
+            status: resourceStatusText(runnerIntegration.status),
+          })
+        : localized("issues.run.noRunnerIntegration"),
       severity: runnerIntegration?.status === "active" ? "info" : "danger",
     },
   ];
@@ -443,9 +523,9 @@ function mapIssueSummary(
     title: issue.title,
     status: mapIssueStatus(issue.status),
     priority: issue.priority,
-    assignee: actorLabel(issue.assignee, snapshot.agents.data),
+    assignee: actorLabel(issue.assignee, snapshot.agents.data) || "Unassigned",
     labels: [],
-    updatedAt: formatTimestamp(issue.updated_at),
+    updatedAt: timestampText(issue.updated_at),
     commentCount: snapshot.comments.data.filter(
       (comment) => comment.issue_id === issue.id,
     ).length,
@@ -485,11 +565,11 @@ export function mapGeneratedConsoleData(
       priority: "medium",
       assignee: "Unassigned",
       labels: [],
-      updatedAt: "pending",
+      updatedAt: localized("issues.empty.pending"),
       commentCount: 0,
       runStatus: "queued",
       policyState: "allowed",
-      group: "Assigned",
+      group: "assigned",
     } satisfies IssueSummary);
   const childIds = firstIssue
     ? snapshot.issues.data

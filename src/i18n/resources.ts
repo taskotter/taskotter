@@ -16,7 +16,14 @@ const accentMap: Record<string, string> = {
 };
 
 function pseudoLocalize(value: string): string {
-  return `[!! ${value.replace(/[aeiouAEIOU]/g, (char) => accentMap[char] ?? char)} !!]`;
+  return `[!! ${value
+    .split(/(\{\w+\})/g)
+    .map((part) =>
+      /^\{\w+\}$/.test(part)
+        ? part
+        : part.replace(/[aeiouAEIOU]/g, (char) => accentMap[char] ?? char),
+    )
+    .join("")} !!]`;
 }
 
 function pseudoNamespace(
