@@ -205,6 +205,14 @@ test("runtime fixtures match their canonical schemas", async () => {
       "contracts/fixtures/policy-decision.allow.runner-job.json",
     ],
     [
+      "contracts/schemas/policy-decision.schema.json",
+      "contracts/fixtures/policy-decision.allow.composition-service-admin.json",
+    ],
+    [
+      "contracts/schemas/policy-decision.schema.json",
+      "contracts/fixtures/policy-decision.deny.composition-explicit-deny.json",
+    ],
+    [
       "contracts/schemas/usage-event.schema.json",
       "contracts/fixtures/usage-event.gateway-request.json",
     ],
@@ -237,6 +245,76 @@ test("runtime fixtures match their canonical schemas", async () => {
   for (const [schemaPath, fixturePath] of cases) {
     validate(await readJson(schemaPath), await readJson(fixturePath));
   }
+});
+
+test("policy composition decision snapshots stay runner/gateway compatible", async () => {
+  const schema = await readJson(
+    "contracts/schemas/policy-decision.schema.json",
+  );
+  const matrix = await readJson(
+    "contracts/fixtures/policy-composition.matrix.json",
+  );
+  const snapshots = [
+    await readJson(
+      "contracts/fixtures/policy-decision.deny.composition-explicit-deny.json",
+    ),
+    await readJson(
+      "contracts/fixtures/policy-decision.allow.composition-service-admin.json",
+    ),
+  ];
+  const matrixCases = new Map(
+    matrix.cases.map((testCase) => [testCase.expected.reason_code, testCase]),
+  );
+
+  for (const snapshot of snapshots) {
+    validate(schema, snapshot);
+    assert.equal(
+      snapshot.schema_version,
+      matrix.runner_gateway_decision_contract,
+    );
+    assert.equal(snapshot.policy_version, matrix.policy_version);
+    assert.equal(snapshot.policy_snapshot_id, matrix.policy_snapshot_id);
+    assert.equal(snapshot.ttl_seconds, matrix.default_quota.ttl_seconds);
+    assert.ok(
+      matrixCases.has(snapshot.reason_code),
+      `${snapshot.reason_code} must be backed by the composition matrix`,
+    );
+
+    const matrixCase = matrixCases.get(snapshot.reason_code);
+    assert.equal(snapshot.effect, matrixCase.expected.effect);
+    assert.deepEqual(
+      snapshot.constraints.tool_scopes,
+      matrixCase.expected.tool_scopes,
+    );
+    assert.ok(
+      ["user", "agent", "service"].includes(snapshot.actor.type),
+      "policy decision actor must remain compatible with runner/gateway consumers",
+    );
+  }
+
+  const explicitDeny = snapshots.find(
+    (snapshot) => snapshot.reason_code === "legacy_policy_denied",
+  );
+  assert.equal(explicitDeny.actor.type, "user");
+  assert.equal(explicitDeny.effect, "deny");
+  assert.deepEqual(explicitDeny.constraints.provider_model_ids, []);
+  assert.ok(
+    !Object.hasOwn(explicitDeny.constraints, "high_risk_capabilities"),
+    "ordinary explicit deny snapshot must not imply a protected runtime gate",
+  );
+
+  const serviceAdmin = snapshots.find(
+    (snapshot) => snapshot.reason_code === "protected_action_role_matched",
+  );
+  const [gate] = serviceAdmin.constraints.high_risk_capabilities;
+  assert.equal(serviceAdmin.actor.type, "service");
+  assert.equal(serviceAdmin.effect, "allow");
+  assert.equal(gate.enabled, true);
+  assert.equal(gate.effect, "allow");
+  assert.ok(
+    !Object.hasOwn(gate, "approval_ref"),
+    "allowed admin override snapshot must not carry an approval-required ref",
+  );
 });
 
 test("high-risk runtime fixtures stay deny-by-default and metered by capability", async () => {
