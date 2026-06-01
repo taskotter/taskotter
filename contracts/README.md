@@ -30,3 +30,12 @@ Runner and gateway consumers should reject unsupported major versions and tolera
 Policy decisions, usage events, and audit events carry `correlation_id` and `request_id` so a user request, policy decision, runtime event, and audit record can be reconstructed as one chain. Usage and audit event payloads are nested under the common event envelope.
 
 Workflow definitions describe triggers, conditions, jobs, steps, policy checks, approval gates, retry, timeout, concurrency, and audit event references. Webhook triggers require signature verification and replay protection fields. Protected side-effect steps must reference an approval gate that is required before execution. Secrets and external credentials are represented only by `secret_ref` and `integration_ref` pointers; raw secret values do not belong in workflow YAML, fixtures, generated schema artifacts, logs, or comments.
+
+## Compatibility
+
+`contracts/compatibility-matrix.json` declares the control-plane source of truth
+for the currently supported first-party runner and gateway protocol versions.
+`npm run test:compatibility` validates that generated contracts, canonical
+fixtures, and the repo-local runner/gateway compatibility fixtures all reference
+declared versions and preserve the policy, request, and credential boundaries
+expected by `taskotter-remote` and `taskotter-gateway`.
