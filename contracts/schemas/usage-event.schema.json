@@ -129,7 +129,7 @@
       "type": "string",
       "maxLength": 80,
       "not": {
-        "pattern": "(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|bearer |password|raw[_-]?prompt|raw[_-]?log|artifact[_-]?body|-----BEGIN)"
+        "pattern": "(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|bearer |password|raw[_-]?prompt|raw[_-]?log|artifact[_-]?body|-----BEGIN|[Xx]-[Aa][Mm][Zz]-[Ss][Ii][Gg][Nn][Aa][Tt][Uu][Rr][Ee]|[Xx]-[Gg][Oo][Oo][Gg]-[Ss][Ii][Gg][Nn][Aa][Tt][Uu][Rr][Ee]|[Ss][Ii][Gg][Nn][Aa][Tt][Uu][Rr][Ee]=)"
       }
     },
     "eventId": {

@@ -587,7 +587,7 @@
         {
           "type": "string",
           "not": {
-            "pattern": "([Bb][Ee][Aa][Rr][Ee][Rr]\\s+[A-Za-z0-9._\\-]+|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_\\-]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)"
+            "pattern": "([Bb][Ee][Aa][Rr][Ee][Rr]\\s+[A-Za-z0-9._\\-]+|gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_\\-]{16,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|[Xx]-[Aa][Mm][Zz]-[Ss][Ii][Gg][Nn][Aa][Tt][Uu][Rr][Ee]=|[Xx]-[Gg][Oo][Oo][Gg]-[Ss][Ii][Gg][Nn][Aa][Tt][Uu][Rr][Ee]=|[?&][Ss][Ii][Gg][Nn][Aa][Tt][Uu][Rr][Ee]=)"
           }
         },
         {
