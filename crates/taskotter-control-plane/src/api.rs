@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{FromRequest, Request, State, rejection::JsonRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -135,6 +135,23 @@ pub struct ErrorSupportMetadata {
     pub redacted: bool,
 }
 
+pub struct SafeJson<T>(T);
+
+impl<S, T> FromRequest<S> for SafeJson<T>
+where
+    S: Send + Sync,
+    Json<T>: FromRequest<S, Rejection = JsonRejection>,
+{
+    type Rejection = ApiError;
+
+    async fn from_request(request: Request, state: &S) -> Result<Self, Self::Rejection> {
+        let Json(value) = Json::<T>::from_request(request, state)
+            .await
+            .map_err(|_| ApiError::invalid_payload())?;
+        Ok(Self(value))
+    }
+}
+
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
@@ -185,7 +202,7 @@ async fn openapi() -> Json<utoipa::openapi::OpenApi> {
 )]
 async fn create_working_group(
     State(state): State<AppState>,
-    Json(request): Json<CreateWorkingGroupRequest>,
+    SafeJson(request): SafeJson<CreateWorkingGroupRequest>,
 ) -> Result<(StatusCode, Json<WorkingGroup>), ApiError> {
     require_non_empty("slug", &request.slug)?;
     require_non_empty("name", &request.name)?;
@@ -214,7 +231,7 @@ async fn create_working_group(
 )]
 async fn create_issue(
     State(state): State<AppState>,
-    Json(request): Json<CreateIssueRequest>,
+    SafeJson(request): SafeJson<CreateIssueRequest>,
 ) -> Result<(StatusCode, Json<Issue>), ApiError> {
     require_non_empty("title", &request.title)?;
 
@@ -243,7 +260,7 @@ async fn create_issue(
 )]
 async fn create_comment(
     State(state): State<AppState>,
-    Json(request): Json<CreateCommentRequest>,
+    SafeJson(request): SafeJson<CreateCommentRequest>,
 ) -> Result<(StatusCode, Json<Comment>), ApiError> {
     require_non_empty("body", &request.body)?;
 
@@ -271,7 +288,7 @@ async fn create_comment(
 )]
 async fn create_registry_entry(
     State(state): State<AppState>,
-    Json(request): Json<CreateRegistryEntryRequest>,
+    SafeJson(request): SafeJson<CreateRegistryEntryRequest>,
 ) -> Result<(StatusCode, Json<RegistryEntry>), ApiError> {
     require_non_empty("display_name", &request.display_name)?;
 
@@ -301,7 +318,7 @@ async fn create_registry_entry(
 )]
 async fn evaluate_policy(
     State(state): State<AppState>,
-    Json(request): Json<PolicyDecisionRequest>,
+    SafeJson(request): SafeJson<PolicyDecisionRequest>,
 ) -> Result<Json<PolicyDecision>, ApiError> {
     let mut store = state.store.lock().map_err(|_| ApiError::internal())?;
     let context = store.authorization_context();
@@ -316,7 +333,9 @@ async fn evaluate_policy(
     request_body = UsageEvaluationRequest,
     responses((status = 200, body = UsageEvaluation))
 )]
-async fn evaluate_usage(Json(request): Json<UsageEvaluationRequest>) -> Json<UsageEvaluation> {
+async fn evaluate_usage(
+    SafeJson(request): SafeJson<UsageEvaluationRequest>,
+) -> Json<UsageEvaluation> {
     Json(request.policy_set.evaluate(&request.snapshot))
 }
 
@@ -332,11 +351,11 @@ async fn evaluate_usage(Json(request): Json<UsageEvaluationRequest>) -> Json<Usa
 )]
 async fn create_usage_event(
     State(state): State<AppState>,
-    Json(event): Json<UsageAuditEventV1>,
+    SafeJson(event): SafeJson<UsageAuditEventV1>,
 ) -> Result<(StatusCode, Json<UsageAuditEventV1>), ApiError> {
     let ledger_entry = event
         .to_ledger_entry()
-        .map_err(|error| ApiError::invalid_payload(&error.to_string()))?;
+        .map_err(|error| ApiError::invalid_payload_with_reason(&error.to_string()))?;
 
     let mut store = state.store.lock().map_err(|_| ApiError::internal())?;
     if let Some(existing) = store
@@ -383,7 +402,7 @@ async fn create_usage_event(
 )]
 async fn create_remote_usage_report(
     State(state): State<AppState>,
-    Json(report): Json<RemoteUsageReportV1>,
+    SafeJson(report): SafeJson<RemoteUsageReportV1>,
 ) -> Result<(StatusCode, Json<RemoteUsageReportV1>), ApiError> {
     require_schema_version("remote_usage_report.v1", &report.schema_version)?;
     require_non_empty("job_id", &report.job_id)?;
@@ -407,7 +426,7 @@ async fn create_remote_usage_report(
 )]
 async fn create_audit_event(
     State(state): State<AppState>,
-    Json(request): Json<CreateAuditEventRequest>,
+    SafeJson(request): SafeJson<CreateAuditEventRequest>,
 ) -> Result<(StatusCode, Json<AuditEvent>), ApiError> {
     require_non_empty("action", &request.action)?;
     require_non_empty("resource", &request.resource)?;
@@ -439,11 +458,11 @@ async fn create_audit_event(
 )]
 async fn create_run_timeline_event(
     State(state): State<AppState>,
-    Json(event): Json<RunTimelineEventV1>,
+    SafeJson(event): SafeJson<RunTimelineEventV1>,
 ) -> Result<(StatusCode, Json<RunTimelineEventV1>), ApiError> {
     event
         .validate_for_ingestion()
-        .map_err(|error| ApiError::invalid_payload(&error.to_string()))?;
+        .map_err(|error| ApiError::invalid_payload_with_reason(&error.to_string()))?;
 
     state
         .store
@@ -463,11 +482,11 @@ async fn create_run_timeline_event(
 )]
 async fn create_operations_audit_event(
     State(state): State<AppState>,
-    Json(event): Json<OperationsAuditEventV1>,
+    SafeJson(event): SafeJson<OperationsAuditEventV1>,
 ) -> Result<(StatusCode, Json<OperationsAuditEventV1>), ApiError> {
     event
         .validate_for_ingestion()
-        .map_err(|error| ApiError::invalid_payload(&error.to_string()))?;
+        .map_err(|error| ApiError::invalid_payload_with_reason(&error.to_string()))?;
 
     state
         .store
@@ -487,11 +506,11 @@ async fn create_operations_audit_event(
 )]
 async fn create_operations_health_event(
     State(state): State<AppState>,
-    Json(event): Json<OperationsHealthEventV1>,
+    SafeJson(event): SafeJson<OperationsHealthEventV1>,
 ) -> Result<(StatusCode, Json<OperationsHealthEventV1>), ApiError> {
     event
         .validate_for_ingestion()
-        .map_err(|error| ApiError::invalid_payload(&error.to_string()))?;
+        .map_err(|error| ApiError::invalid_payload_with_reason(&error.to_string()))?;
 
     state
         .store
@@ -565,8 +584,12 @@ impl ApiError {
         }
     }
 
-    fn invalid_payload(_safe_reason: &str) -> Self {
+    fn invalid_payload() -> Self {
         Self::invalid_field("body", "invalid payload")
+    }
+
+    fn invalid_payload_with_reason(_safe_reason: &str) -> Self {
+        Self::invalid_payload()
     }
 
     fn conflict() -> Self {
@@ -921,6 +944,157 @@ mod tests {
         assert!(!serialized.contains("secret_token_value"));
         assert!(!serialized.contains("credential_access"));
         assert!(!serialized.contains("poldec_12345678901234567890123456"));
+        Ok(())
+    }
+
+    async fn post_json_body(uri: &str, body: &str) -> Result<Value, Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(uri)
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(body.to_owned()))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        Ok(serde_json::from_slice(&body)?)
+    }
+
+    fn assert_json_rejection_is_redacted(
+        envelope: &Value,
+        forbidden_values: &[&str],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let serialized = serde_json::to_string(envelope)?;
+
+        assert_eq!(envelope["error"]["code"], "validation_failed");
+        assert_eq!(envelope["error"]["message_key"], "errors.validation_failed");
+        assert_eq!(envelope["error"]["field_errors"][0]["field"], "body");
+        assert_eq!(envelope["error"]["field_errors"][0]["code"], "invalid");
+        assert_eq!(envelope["error"]["support"]["redacted"], true);
+        assert!(envelope["error"].get("message").is_none());
+        assert!(
+            envelope["error"]["field_errors"][0]
+                .get("message")
+                .is_none()
+        );
+
+        for forbidden in forbidden_values {
+            assert!(
+                !serialized.contains(forbidden),
+                "error response leaked forbidden text: {forbidden}"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn json_extractor_rejections_use_redacted_error_contract()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let valid_audit_prefix = r#"{
+            "id": "evt_12345678901234567890123456",
+            "type": "operations.audit.recorded",
+            "envelope": {
+                "version": "0.1.0",
+                "occurred_at": "2026-06-01T00:00:00Z",
+                "working_group_id": "wg_12345678901234567890123456",
+                "tenant_id": "tenant_12345678901234567890123456",
+                "correlation_id": "corr_12345678901234567890123456",
+                "request_id": "req_12345678901234567890123456",
+                "source": "secret_token_value",
+                "actor": { "type": "agent", "id": "agent_12345678901234567890123456" },
+                "resource": { "type": "provider", "id": "provider_12345678901234567890123456" },
+                "redaction": "internal_reference_only"
+            },
+            "action": "credential_access",
+            "outcome": "failed",
+            "evidence": {
+                "evidence_id": "evidence_12345678901234567890123456",
+                "policy_decision_id": "poldec_12345678901234567890123456",
+                "secret_ref": "secret_12345678901234567890123456"
+            }
+        }"#;
+
+        let cases = [
+            (
+                "unknown enum",
+                "/v1/operations/audit/events",
+                valid_audit_prefix,
+                [
+                    "secret_token_value",
+                    "unknown variant",
+                    "OperationsSourceSurface",
+                    "serde",
+                    "Json",
+                    "line",
+                    "column",
+                    "stack",
+                    "backtrace",
+                ]
+                .as_slice(),
+            ),
+            (
+                "invalid type",
+                "/v1/working-groups",
+                r#"{"slug":{"nested":"secret_token_value"},"name":"Platform"}"#,
+                [
+                    "secret_token_value",
+                    "invalid type",
+                    "nested",
+                    "serde",
+                    "Json",
+                    "line",
+                    "column",
+                    "stack",
+                    "backtrace",
+                ]
+                .as_slice(),
+            ),
+            (
+                "missing field",
+                "/v1/working-groups",
+                r#"{"slug":"secret_token_value"}"#,
+                [
+                    "secret_token_value",
+                    "missing field",
+                    "name",
+                    "serde",
+                    "Json",
+                    "line",
+                    "column",
+                    "stack",
+                    "backtrace",
+                ]
+                .as_slice(),
+            ),
+            (
+                "malformed JSON",
+                "/v1/working-groups",
+                r#"{"slug":"secret_token_value","name":"#,
+                [
+                    "secret_token_value",
+                    "EOF",
+                    "expected",
+                    "serde",
+                    "Json",
+                    "line",
+                    "column",
+                    "stack",
+                    "backtrace",
+                ]
+                .as_slice(),
+            ),
+        ];
+
+        for (case, uri, body, forbidden_values) in cases {
+            let envelope = post_json_body(uri, body).await?;
+            assert_json_rejection_is_redacted(&envelope, forbidden_values)
+                .map_err(|error| format!("{case}: {error}"))?;
+        }
+
         Ok(())
     }
 
@@ -1442,7 +1616,19 @@ mod tests {
                     .body(Body::from(raw_payload.to_string()))?,
             )
             .await?;
-        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_json_rejection_is_redacted(
+            &envelope,
+            &[
+                "raw_prompt",
+                "do not store me",
+                "unknown field",
+                "serde",
+                "Json",
+            ],
+        )?;
         Ok(())
     }
 
