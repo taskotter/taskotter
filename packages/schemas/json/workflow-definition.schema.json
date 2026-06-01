@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.taskotter.dev/workflow-definition.schema.json",
+  "title": "TaskOtterWorkflowDefinition",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "workflow_id",
+    "working_group_id",
+    "name",
+    "status",
+    "triggers",
+    "steps"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "workflow-definition@0.1.0"
+    },
+    "workflow_id": {
+      "type": "string",
+      "pattern": "^wfl_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "working_group_id": {
+      "type": "string",
+      "pattern": "^wg_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "active",
+        "disabled",
+        "archived"
+      ]
+    },
+    "triggers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "type": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "agent_task",
+              "approval",
+              "webhook",
+              "gateway_request"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

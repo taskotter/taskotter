@@ -1,0 +1,5 @@
+contracts/openapi/*.json
+contracts/schemas/*.json
+packages/api-client/src/index.ts
+packages/schemas/json/*.json
+packages/schemas/src/index.ts
