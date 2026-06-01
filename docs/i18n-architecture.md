@@ -289,7 +289,8 @@ least one slow or failed request path.
 4. QA matrix: add pseudo-localization, missing-key, long-string, locale-format,
    time-zone, accessibility, and Playwright smoke coverage.
 5. Release checklist: document locale completeness, known limitations, support
-   triage, and rollback expectations for localized releases.
+   triage, and rollback expectations for localized releases. See
+   `docs/localization-release-readiness.md`.
 
 ## Initial Implementation Note
 

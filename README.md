@@ -82,6 +82,8 @@ Architecture notes:
 - `docs/i18n-architecture.md` defines the repository-local internationalization
   architecture, translation resource convention, locale precedence, API message
   policy, and localization QA gates.
+- `docs/localization-release-readiness.md` defines the release checklist and PR
+  readiness evidence for localization-impacting changes.
 
 ## License
 
