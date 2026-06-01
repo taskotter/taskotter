@@ -1,0 +1,35 @@
+{
+  "schema_version": "agent_result_import.v1",
+  "work_item_id": "018f30d5-9471-7c4c-85c4-0e14c3f76c10",
+  "source_agent_run_ref": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2AR",
+  "summary": "Implemented fixture-based import and evidence capture scaffold for review packet generation.",
+  "changed_files": [
+    {
+      "path": "crates/taskotter-control-plane/src/agent_result.rs",
+      "change_type": "added",
+      "summary": "Defines imported agent result evidence mapping and redaction summary fields."
+    },
+    {
+      "path": "crates/taskotter-control-plane/src/api.rs",
+      "change_type": "modified",
+      "summary": "Adds import and review packet scaffold routes."
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_ref": "artifact_review_packet_fixture_001",
+      "label": "Review packet fixture",
+      "media_type": "application/json"
+    }
+  ],
+  "commands": [
+    {
+      "command": "cargo test -p taskotter-control-plane",
+      "outcome": "passed",
+      "summary": "Control-plane unit tests passed for imported evidence mapping."
+    }
+  ],
+  "uncertainty": "Prototype fixture only; no runner daemon or webhook integration is claimed.",
+  "error_notes": null,
+  "retry_notes": "No retry was required for the fixture import."
+}
