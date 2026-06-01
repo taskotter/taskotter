@@ -961,7 +961,8 @@ impl From<ReviewControlError> for ApiError {
             ReviewControlError::Required(_)
             | ReviewControlError::UnsupportedSchemaVersion
             | ReviewControlError::UnsafeReference { .. }
-            | ReviewControlError::MissingAcceptanceCriteria => Self::invalid_payload(),
+            | ReviewControlError::MissingAcceptanceCriteria
+            | ReviewControlError::ApprovalRequiredInvariantViolation => Self::invalid_payload(),
         }
     }
 }
@@ -2605,6 +2606,63 @@ mod tests {
         let serialized = serde_json::to_string(&envelope)?;
         assert_eq!(envelope["error"]["code"], "validation_failed");
         assert!(!serialized.contains("raw_log_token_unsafe"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn review_control_api_enforces_approval_required_invariant()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let app = build_router(AppState::default());
+        let mut high_risk = review_control_create_request();
+        high_risk["autonomy_level"] = json!("agent_can_prepare");
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                high_risk,
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_eq!(envelope["error"]["code"], "validation_failed");
+        assert_eq!(envelope["error"]["support"]["redacted"], true);
+
+        let mut allowed = review_control_create_request();
+        allowed["risk_tier"] = json!("medium");
+        allowed["autonomy_level"] = json!("agent_can_prepare");
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                allowed,
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let created: Value = serde_json::from_slice(&body)?;
+        let work_item_id = created["id"]
+            .as_str()
+            .ok_or("work item id should serialize as string")?;
+        assert_eq!(created["autonomy_level"], "agent_can_prepare");
+        assert_eq!(created["request"]["protected_operation"], false);
+
+        let response = app
+            .oneshot(json_http_request(
+                "PATCH",
+                &format!("/v1/review-control/work-items/{work_item_id}"),
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "protected_operation": true
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_eq!(envelope["error"]["code"], "validation_failed");
         Ok(())
     }
 

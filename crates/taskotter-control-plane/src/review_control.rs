@@ -26,6 +26,8 @@ pub struct ReviewControlWorkItem {
 pub struct WorkItemRequestContext {
     pub source: WorkItemSource,
     pub summary: String,
+    #[serde(default)]
+    pub protected_operation: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -154,6 +156,8 @@ pub struct UpdateReviewControlWorkItemRequest {
     #[serde(default)]
     pub request_summary: Option<String>,
     #[serde(default)]
+    pub protected_operation: Option<bool>,
+    #[serde(default)]
     pub acceptance_criteria: Option<Vec<AcceptanceCriterion>>,
     #[serde(default)]
     pub risk_tier: Option<RiskTier>,
@@ -194,6 +198,8 @@ pub enum ReviewControlError {
     UnsafeReference { field: &'static str },
     #[error("acceptance_criteria must not be empty")]
     MissingAcceptanceCriteria,
+    #[error("high-risk, critical, or protected work items require human approval")]
+    ApprovalRequiredInvariantViolation,
     #[error("invalid review control state transition")]
     InvalidTransition,
 }
@@ -212,6 +218,11 @@ impl CreateReviewControlWorkItemRequest {
             sanitize_refs("imported_result_refs", self.imported_result_refs)?;
         let evidence_refs = sanitize_refs("evidence_refs", self.evidence_refs)?;
         let audit = sanitize_audit(self.audit)?;
+        enforce_approval_required_invariant(
+            &self.risk_tier,
+            &self.autonomy_level,
+            request.protected_operation,
+        )?;
         let ready_for_review = !imported_result_refs.is_empty() || !evidence_refs.is_empty();
 
         Ok(ReviewControlWorkItem {
@@ -252,6 +263,22 @@ impl ReviewControlWorkItem {
     ) -> Result<(), ReviewControlError> {
         require_schema_version(&update.schema_version)?;
         self.ensure_mutable()?;
+        let next_risk_tier = update
+            .risk_tier
+            .clone()
+            .unwrap_or_else(|| self.risk_tier.clone());
+        let next_autonomy_level = update
+            .autonomy_level
+            .clone()
+            .unwrap_or_else(|| self.autonomy_level.clone());
+        let next_protected_operation = update
+            .protected_operation
+            .unwrap_or(self.request.protected_operation);
+        enforce_approval_required_invariant(
+            &next_risk_tier,
+            &next_autonomy_level,
+            next_protected_operation,
+        )?;
 
         if let Some(summary) = update.request_summary {
             self.request.summary = sanitize_text(
@@ -259,6 +286,9 @@ impl ReviewControlWorkItem {
                 summary,
                 &mut self.redaction_summary.redacted_fields,
             );
+        }
+        if let Some(protected_operation) = update.protected_operation {
+            self.request.protected_operation = protected_operation;
         }
         if let Some(acceptance_criteria) = update.acceptance_criteria {
             self.acceptance_criteria = sanitize_acceptance_criteria(
@@ -376,6 +406,19 @@ fn require_schema_version(schema_version: &str) -> Result<(), ReviewControlError
     Ok(())
 }
 
+fn enforce_approval_required_invariant(
+    risk_tier: &RiskTier,
+    autonomy_level: &AutonomyLevel,
+    protected_operation: bool,
+) -> Result<(), ReviewControlError> {
+    let approval_required =
+        matches!(risk_tier, RiskTier::High | RiskTier::Critical) || protected_operation;
+    if approval_required && autonomy_level != &AutonomyLevel::HumanApprovalRequired {
+        return Err(ReviewControlError::ApprovalRequiredInvariantViolation);
+    }
+    Ok(())
+}
+
 fn sanitize_request(
     request: WorkItemRequestContext,
     redacted_fields: &mut Vec<String>,
@@ -385,6 +428,7 @@ fn sanitize_request(
     Ok(WorkItemRequestContext {
         source: request.source,
         summary: sanitize_text("request.summary", request.summary, redacted_fields),
+        protected_operation: request.protected_operation,
     })
 }
 
@@ -495,6 +539,7 @@ mod tests {
                     source_ref: "issue_BOG_571".to_owned(),
                 },
                 summary: "Implement review control contract.".to_owned(),
+                protected_operation: false,
             },
             acceptance_criteria: vec![AcceptanceCriterion {
                 id: "ac_create".to_owned(),
@@ -521,6 +566,7 @@ mod tests {
         item.apply_update(UpdateReviewControlWorkItemRequest {
             schema_version: "review_control.work_item.v1".to_owned(),
             request_summary: None,
+            protected_operation: None,
             acceptance_criteria: None,
             risk_tier: None,
             autonomy_level: None,
@@ -605,6 +651,105 @@ mod tests {
                 field: "evidence_refs"
             })
         );
+        Ok(())
+    }
+
+    #[test]
+    fn high_and_critical_risk_require_human_approval() {
+        for (risk_tier, autonomy_level) in [
+            (RiskTier::High, AutonomyLevel::SuggestOnly),
+            (RiskTier::High, AutonomyLevel::AgentCanPrepare),
+            (RiskTier::Critical, AutonomyLevel::SuggestOnly),
+            (RiskTier::Critical, AutonomyLevel::AgentCanPrepare),
+        ] {
+            let mut request = create_request();
+            request.risk_tier = risk_tier;
+            request.autonomy_level = autonomy_level;
+            assert_eq!(
+                request.into_work_item(),
+                Err(ReviewControlError::ApprovalRequiredInvariantViolation)
+            );
+        }
+    }
+
+    #[test]
+    fn protected_operation_requires_human_approval_even_when_risk_is_medium() {
+        for autonomy_level in [AutonomyLevel::SuggestOnly, AutonomyLevel::AgentCanPrepare] {
+            let mut request = create_request();
+            request.risk_tier = RiskTier::Medium;
+            request.autonomy_level = autonomy_level;
+            request.request.protected_operation = true;
+            assert_eq!(
+                request.into_work_item(),
+                Err(ReviewControlError::ApprovalRequiredInvariantViolation)
+            );
+        }
+    }
+
+    #[test]
+    fn low_and_medium_unprotected_items_allow_non_human_autonomy()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (risk_tier, autonomy_level) in [
+            (RiskTier::Low, AutonomyLevel::SuggestOnly),
+            (RiskTier::Medium, AutonomyLevel::AgentCanPrepare),
+        ] {
+            let mut request = create_request();
+            request.risk_tier = risk_tier.clone();
+            request.autonomy_level = autonomy_level.clone();
+            let item = request.into_work_item()?;
+            assert_eq!(item.risk_tier, risk_tier);
+            assert_eq!(item.autonomy_level, autonomy_level);
+            assert!(!item.request.protected_operation);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn update_rejects_policy_regression_to_non_human_autonomy()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut item = create_request().into_work_item()?;
+
+        assert_eq!(
+            item.apply_update(UpdateReviewControlWorkItemRequest {
+                schema_version: "review_control.work_item.v1".to_owned(),
+                request_summary: None,
+                protected_operation: None,
+                acceptance_criteria: None,
+                risk_tier: None,
+                autonomy_level: Some(AutonomyLevel::AgentCanPrepare),
+                imported_result_refs: None,
+                evidence_refs: None,
+                audit_event_ref: None,
+            }),
+            Err(ReviewControlError::ApprovalRequiredInvariantViolation)
+        );
+        assert_eq!(item.autonomy_level, AutonomyLevel::HumanApprovalRequired);
+        Ok(())
+    }
+
+    #[test]
+    fn update_rejects_marking_agent_prepared_work_as_protected()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut request = create_request();
+        request.risk_tier = RiskTier::Medium;
+        request.autonomy_level = AutonomyLevel::AgentCanPrepare;
+        let mut item = request.into_work_item()?;
+
+        assert_eq!(
+            item.apply_update(UpdateReviewControlWorkItemRequest {
+                schema_version: "review_control.work_item.v1".to_owned(),
+                request_summary: None,
+                protected_operation: Some(true),
+                acceptance_criteria: None,
+                risk_tier: None,
+                autonomy_level: None,
+                imported_result_refs: None,
+                evidence_refs: None,
+                audit_event_ref: None,
+            }),
+            Err(ReviewControlError::ApprovalRequiredInvariantViolation)
+        );
+        assert!(!item.request.protected_operation);
         Ok(())
     }
 }
