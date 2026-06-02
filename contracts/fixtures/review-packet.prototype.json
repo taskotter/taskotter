@@ -1,0 +1,104 @@
+{
+  "schema_version": "review-packet@0.1.0",
+  "packet_id": "rvpkt_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "work_item": {
+    "work_item_id": "issue_BOG_615",
+    "source_category": "multica_issue",
+    "source_ref": "issue_BOG_615",
+    "summary_ref": "summary_review_control_schema_slice",
+    "risk_tier": "high"
+  },
+  "plan_approval": {
+    "state": "approved",
+    "approval_ref": "appr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"
+  },
+  "acceptance_criteria": [
+    {
+      "criterion_id": "ac_review_packet_contract",
+      "summary_ref": "summary_review_packet_can_be_assembled",
+      "status": "met",
+      "required": true
+    },
+    {
+      "criterion_id": "ac_raw_content_boundary",
+      "summary_ref": "summary_reference_only_source_material",
+      "status": "met",
+      "required": true
+    }
+  ],
+  "evidence_sources": [
+    {
+      "source_category": "generated_schema",
+      "evidence_ref": "contracts_schemas_review_packet_schema_json",
+      "summary_ref": "summary_generated_schema_export",
+      "risk_signals": ["contract_change", "schema_generation"],
+      "uncertainty": "low"
+    },
+    {
+      "source_category": "fixture_validation",
+      "evidence_ref": "contracts_fixtures_review_packet_prototype_json",
+      "summary_ref": "summary_fixture_validation",
+      "risk_signals": ["contract_change"],
+      "uncertainty": "low"
+    },
+    {
+      "source_category": "module_guard",
+      "evidence_ref": "npm_run_check_module_boundaries",
+      "summary_ref": "summary_module_boundary_and_file_size_guard",
+      "risk_signals": ["module_boundary", "file_size_guard"],
+      "uncertainty": "medium"
+    }
+  ],
+  "result_summary": {
+    "summary_ref": "summary_review_control_contract_ready",
+    "status": "ready_for_review",
+    "changed_area_refs": [
+      "contracts_schemas_review_packet_schema_json",
+      "contracts_fixtures_review_packet_prototype_json",
+      "packages_schemas_generated_exports"
+    ]
+  },
+  "rollback_path": {
+    "available": true,
+    "summary_ref": "summary_revert_contract_schema_fixture_and_generated_exports"
+  },
+  "decision": {
+    "outcome": "pending",
+    "decision_ref": "rvdec_pending_review_control_contract",
+    "reason_code": "residual_risk"
+  },
+  "audit_events": [
+    {
+      "event_id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AN",
+      "event_type": "review.packet.generated",
+      "event_version": "0.1.0"
+    },
+    {
+      "event_id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2AS",
+      "event_type": "review.human_decision.recorded",
+      "event_version": "0.1.0"
+    }
+  ],
+  "raw_content_boundary": {
+    "raw_transcript_storage": "reference_only",
+    "full_diff_storage": "reference_only",
+    "allowed_reference_fields": [
+      "summary_ref",
+      "artifact_manifest_ref",
+      "diff_summary_ref",
+      "test_result_ref",
+      "audit_event_ref"
+    ],
+    "forbidden_payload_fields": [
+      "raw_transcript",
+      "full_diff",
+      "secret_value",
+      "customer_data",
+      "private_roadmap_body"
+    ]
+  },
+  "compatibility": {
+    "versioning_strategy": "additive_minor_fields_only",
+    "breaking_change_policy": "new_major_schema_version"
+  }
+}

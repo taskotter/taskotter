@@ -24,8 +24,12 @@ Use `npm run contracts:check` in CI to verify generated artifacts are reproducib
 - Usage event fixture: `usage.gateway_request.recorded` payload version `0.1.0`.
 - Audit event fixture: `audit.policy_decision.denied` payload version `0.1.0`.
 - Workflow definition fixture: `workflow-definition@0.1.0`, representing the parsed form of portable workflow YAML.
+- Review packet fixture: `review-packet@0.1.0`, representing the prototype review packet assembled from work item, plan approval, acceptance criteria status, evidence references, risk signals, uncertainty, rollback path, decision outcome, and audit event references.
 
 Runner and gateway consumers should reject unsupported major versions and tolerate unknown additive fields for compatible minor versions.
+Review packet consumers follow the same backward-compatible strategy: additive
+minor fields are compatible, while renamed fields, removed fields, or changed
+semantics require a new major schema version.
 
 Policy decisions, usage events, and audit events carry `correlation_id` and `request_id` so a user request, policy decision, runtime event, and audit record can be reconstructed as one chain. Usage and audit event payloads are nested under the common event envelope.
 
@@ -60,3 +64,10 @@ fragment. `remote.v1alpha1` `job.dispatch` carries only part of the full lineage
 request id and policy-decision lineage must be reconstructed by joining the
 runner dispatch fragment to the control-plane chain record. Export, delete,
 legal hold, and retention behavior remain out of scope for this fixture.
+
+`contracts/fixtures/review-packet.prototype.json` is the canonical
+review-control packet fixture for this prototype slice. It stores only
+reference fields and redacted summary references for source context, evidence,
+diffs, transcripts, and audit events. Raw transcripts, full diffs, secret
+values, customer data, and private roadmap bodies must remain outside review
+packet payloads.

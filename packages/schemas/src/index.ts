@@ -1161,6 +1161,390 @@ export const PolicyDecisionSchema = {
   }
 } as const;
 
+export const ReviewPacketSchema = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.taskotter.dev/review-packet.schema.json",
+  "title": "TaskOtterReviewPacket",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "packet_id",
+    "work_item",
+    "plan_approval",
+    "acceptance_criteria",
+    "evidence_sources",
+    "result_summary",
+    "rollback_path",
+    "decision",
+    "audit_events",
+    "raw_content_boundary",
+    "compatibility"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "review-packet@0.1.0"
+    },
+    "packet_id": {
+      "$ref": "#/$defs/reviewPacketId"
+    },
+    "work_item": {
+      "type": "object",
+      "required": [
+        "work_item_id",
+        "source_category",
+        "source_ref",
+        "summary_ref",
+        "risk_tier"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "work_item_id": {
+          "$ref": "#/$defs/safeOpaqueRef"
+        },
+        "source_category": {
+          "$ref": "#/$defs/sourceCategory"
+        },
+        "source_ref": {
+          "$ref": "#/$defs/safeOpaqueRef"
+        },
+        "summary_ref": {
+          "$ref": "#/$defs/safeOpaqueRef"
+        },
+        "risk_tier": {
+          "$ref": "#/$defs/riskTier"
+        }
+      }
+    },
+    "plan_approval": {
+      "type": "object",
+      "required": [
+        "state",
+        "approval_ref"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "approved",
+            "not_required"
+          ]
+        },
+        "approval_ref": {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      }
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/acceptanceCriterion"
+      },
+      "minItems": 1
+    },
+    "evidence_sources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidenceSource"
+      },
+      "minItems": 1
+    },
+    "result_summary": {
+      "type": "object",
+      "required": [
+        "summary_ref",
+        "status",
+        "changed_area_refs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "summary_ref": {
+          "$ref": "#/$defs/safeOpaqueRef"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ready_for_review",
+            "needs_rework",
+            "blocked"
+          ]
+        },
+        "changed_area_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/safeOpaqueRef"
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "rollback_path": {
+      "type": "object",
+      "required": [
+        "available",
+        "summary_ref"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "summary_ref": {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "required": [
+        "outcome",
+        "decision_ref"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "done",
+            "rework",
+            "blocked"
+          ]
+        },
+        "decision_ref": {
+          "$ref": "#/$defs/safeOpaqueRef"
+        },
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "acceptance_criteria_met",
+            "missing_required_evidence",
+            "residual_risk",
+            "reviewer_requested_rework"
+          ]
+        }
+      }
+    },
+    "audit_events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/auditEventRef"
+      },
+      "minItems": 1
+    },
+    "raw_content_boundary": {
+      "type": "object",
+      "required": [
+        "raw_transcript_storage",
+        "full_diff_storage",
+        "allowed_reference_fields",
+        "forbidden_payload_fields"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "raw_transcript_storage": {
+          "const": "reference_only"
+        },
+        "full_diff_storage": {
+          "const": "reference_only"
+        },
+        "allowed_reference_fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "summary_ref",
+              "artifact_manifest_ref",
+              "diff_summary_ref",
+              "test_result_ref",
+              "audit_event_ref"
+            ]
+          },
+          "minItems": 3
+        },
+        "forbidden_payload_fields": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "raw_transcript",
+              "full_diff",
+              "secret_value",
+              "customer_data",
+              "private_roadmap_body"
+            ]
+          },
+          "minItems": 5
+        }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "required": [
+        "versioning_strategy",
+        "breaking_change_policy"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "versioning_strategy": {
+          "const": "additive_minor_fields_only"
+        },
+        "breaking_change_policy": {
+          "const": "new_major_schema_version"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "safeOpaqueRef": {
+      "type": "string",
+      "maxLength": 120,
+      "not": {
+        "pattern": "(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|bearer |password|raw[_-]?prompt|raw[_-]?log|raw[_-]?transcript|full[_-]?diff|artifact[_-]?body|transcript[_-]?copy|secret[_-]?value|customer[_-]?data|private[_-]?roadmap|-----BEGIN)"
+      }
+    },
+    "reviewPacketId": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      ],
+      "pattern": "^rvpkt_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "auditEventId": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/safeOpaqueRef"
+        }
+      ],
+      "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "sourceCategory": {
+      "type": "string",
+      "enum": [
+        "multica_issue",
+        "github_issue",
+        "agent_run",
+        "manual"
+      ]
+    },
+    "riskTier": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ]
+    },
+    "acceptanceCriterion": {
+      "type": "object",
+      "required": [
+        "criterion_id",
+        "summary_ref",
+        "status",
+        "required"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "criterion_id": {
+          "$ref": "#/$defs/safeOpaqueRef"
+        },
+        "summary_ref": {
+          "$ref": "#/$defs/safeOpaqueRef"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "met",
+            "not_met",
+            "unknown"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        }
+      }
+    },
+    "evidenceSource": {
+      "type": "object",
+      "required": [
+        "source_category",
+        "evidence_ref",
+        "summary_ref",
+        "risk_signals",
+        "uncertainty"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source_category": {
+          "type": "string",
+          "enum": [
+            "test_result",
+            "generated_schema",
+            "fixture_validation",
+            "human_note",
+            "audit_event",
+            "diff_summary",
+            "module_guard"
+          ]
+        },
+        "evidence_ref": {
+          "$ref": "#/$defs/safeOpaqueRef"
+        },
+        "summary_ref": {
+          "$ref": "#/$defs/safeOpaqueRef"
+        },
+        "risk_signals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "contract_change",
+              "schema_generation",
+              "security_sensitive",
+              "module_boundary",
+              "file_size_guard",
+              "residual_risk"
+            ]
+          }
+        },
+        "uncertainty": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      }
+    },
+    "auditEventRef": {
+      "type": "object",
+      "required": [
+        "event_id",
+        "event_type",
+        "event_version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "$ref": "#/$defs/auditEventId"
+        },
+        "event_type": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(\\.[a-z0-9_]+)+$"
+        },
+        "event_version": {
+          "const": "0.1.0"
+        }
+      }
+    }
+  }
+} as const;
+
 export const UsageEventSchema = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://contracts.taskotter.dev/usage-event.schema.json",
@@ -2423,6 +2807,7 @@ export const contractSchemas = {
   "audit-event.schema.json": AuditEventSchema,
   "event-envelope.schema.json": EventEnvelopeSchema,
   "policy-decision.schema.json": PolicyDecisionSchema,
+  "review-packet.schema.json": ReviewPacketSchema,
   "usage-event.schema.json": UsageEventSchema,
   "workflow-definition.schema.json": WorkflowDefinitionSchema
 } as const;
