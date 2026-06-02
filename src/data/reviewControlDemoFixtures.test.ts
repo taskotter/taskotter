@@ -35,19 +35,25 @@ describe("review control demo seed fixtures", () => {
     for (const item of demoReviewControlSeed.workItems) {
       expect(item.acceptanceCriteria.length).toBeGreaterThan(0);
       expect(item.reviewPacket.schemaVersion).toBe("review_packet.v0");
+      expect(item.reviewPacket.sourceSchemaVersion).toBe(
+        "review_packet_fixture_input.v0",
+      );
       expect(item.reviewPacket.issueKey).toBe(item.key);
       expect(item.reviewPacket.changedArtifacts.length).toBeGreaterThan(0);
       expect(item.reviewPacket.acceptanceChecklist).toEqual(
         item.acceptanceCriteria.map((criterion) => ({
           id: criterion.id,
           text: criterion.text,
-          status: criterion.satisfied ? "covered" : "missing",
+          status: criterion.satisfied ? "accepted" : "unverified",
           evidenceRefs: criterion.satisfied
             ? item.reviewPacket.verificationEvidence.map(
                 (evidence) => evidence.id,
               )
             : [],
         })),
+      );
+      expect(item.reviewPacket.decisionPrompt.recommendedAction).toMatch(
+        /approve_done|request_evidence|request_rework/,
       );
       expect(item.importedEvidenceSummary.checks.length).toBeGreaterThan(0);
       expect(item.reviewPacket.audit.correlationIds).toContain(

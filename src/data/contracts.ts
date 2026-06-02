@@ -208,7 +208,7 @@ export interface DemoReviewPacketArtifact {
 export interface DemoReviewPacketChecklistItem {
   id: string;
   text: string;
-  status: "covered" | "missing";
+  status: "accepted" | "unverified" | "failed";
   evidenceRefs: readonly string[];
 }
 
@@ -238,6 +238,7 @@ export interface DemoReviewPacketVerificationEvidence {
 export interface DemoCanonicalReviewPacket {
   schemaVersion: "review_packet.v0";
   issueKey: string;
+  sourceSchemaVersion: "review_packet_fixture_input.v0";
   summary: string;
   changedArtifacts: readonly DemoReviewPacketArtifact[];
   acceptanceChecklist: readonly DemoReviewPacketChecklistItem[];
@@ -246,6 +247,11 @@ export interface DemoCanonicalReviewPacket {
   rollbackOrReworkGuidance: string;
   verificationEvidence: readonly DemoReviewPacketVerificationEvidence[];
   missingEvidenceWarnings: readonly string[];
+  decisionPrompt: {
+    recommendedAction: "approve_done" | "request_evidence" | "request_rework";
+    reasons: readonly string[];
+    requiredFollowUps: readonly string[];
+  };
   audit: {
     correlationIds: readonly string[];
     redactions: readonly string[];

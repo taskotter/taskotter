@@ -2,6 +2,13 @@ export type ReviewPacketSeverity = "info" | "warning" | "danger";
 
 export type VerificationStatus = "passed" | "failed" | "not_run" | "blocked";
 
+export type AcceptanceChecklistStatus = "accepted" | "unverified" | "failed";
+
+export type ReviewDecisionPromptAction =
+  | "approve_done"
+  | "request_evidence"
+  | "request_rework";
+
 export type ReviewPacketEvidenceKind =
   | "test"
   | "lint"
@@ -33,12 +40,41 @@ export interface VerificationEvidenceInput {
   correlationId?: string;
 }
 
+export interface ReviewPacketIssueRequestInput {
+  source: "multica_issue" | "github_issue" | "manual_fixture";
+  summary: string;
+  requesterRef?: string;
+}
+
+export interface ReviewPacketPlanInput {
+  summary: string;
+  approvalRef?: string;
+  approved: boolean;
+}
+
+export interface ReviewPacketRiskNoteInput {
+  id: string;
+  severity: ReviewPacketSeverity;
+  summary: string;
+  evidenceRefs?: readonly string[];
+}
+
+export interface ReviewPacketRollbackNoteInput {
+  summary: string;
+  artifactRefs?: readonly string[];
+}
+
 export interface ReviewPacketInput {
+  schemaVersion?: "review_packet_fixture_input.v0";
   issueKey: string;
   title: string;
+  issueRequest?: ReviewPacketIssueRequestInput;
+  plan?: ReviewPacketPlanInput;
   changedArtifacts: readonly ReviewPacketArtifactInput[];
   acceptanceCriteria: readonly AcceptanceCriterionInput[];
   verificationEvidence: readonly VerificationEvidenceInput[];
+  riskNotes?: readonly ReviewPacketRiskNoteInput[];
+  rollbackNote?: ReviewPacketRollbackNoteInput;
   reworkRequested?: boolean;
   uncertaintyNotes?: readonly string[];
   rollbackHint?: string;
@@ -47,7 +83,7 @@ export interface ReviewPacketInput {
 export interface ReviewPacketChecklistItem {
   id: string;
   text: string;
-  status: "covered" | "missing";
+  status: AcceptanceChecklistStatus;
   evidenceRefs: readonly string[];
 }
 
@@ -77,14 +113,23 @@ export interface ReviewPacketVerificationEvidence {
 export interface ReviewPacket {
   schemaVersion: "review_packet.v0";
   issueKey: string;
+  sourceSchemaVersion: "review_packet_fixture_input.v0";
   summary: string;
+  issueRequest?: ReviewPacketIssueRequestInput;
+  plan?: ReviewPacketPlanInput;
   changedArtifacts: readonly ReviewPacketArtifactInput[];
   acceptanceChecklist: readonly ReviewPacketChecklistItem[];
   riskSignals: readonly ReviewPacketSignal[];
   uncertainty: readonly string[];
   rollbackOrReworkGuidance: string;
+  rollbackNote?: ReviewPacketRollbackNoteInput;
   verificationEvidence: readonly ReviewPacketVerificationEvidence[];
   missingEvidenceWarnings: readonly string[];
+  decisionPrompt: {
+    recommendedAction: ReviewDecisionPromptAction;
+    reasons: readonly string[];
+    requiredFollowUps: readonly string[];
+  };
   audit: {
     correlationIds: readonly string[];
     redactions: readonly string[];
@@ -128,6 +173,26 @@ const sensitivePatterns: readonly { label: string; pattern: RegExp }[] = [
     pattern:
       /-----BEGIN [^-]+ PRIVATE KEY-----[\s\S]*?-----END [^-]+ PRIVATE KEY-----/gi,
   },
+  {
+    label: "raw_prompt",
+    pattern: /raw[_ -]?prompt\s*[:=]\s*["']?[^"',\s]+/gi,
+  },
+  {
+    label: "raw_log",
+    pattern: /raw[_ -]?log\s*[:=]\s*["']?[^"',\s]+/gi,
+  },
+  {
+    label: "artifact_body",
+    pattern: /artifact[_ -]?body\s*[:=]\s*["']?[^"',\s]+/gi,
+  },
+  {
+    label: "transcript_copy",
+    pattern: /transcript[_ -]?copy\s*[:=]\s*["']?[^"',\s]+/gi,
+  },
+  {
+    label: "raw_diff",
+    pattern: /raw[_ -]?diff\s*[:=]\s*["']?[^"',\s]+/gi,
+  },
 ];
 
 function sanitizeText(value: string, redactions: Set<string>): string {
@@ -150,6 +215,56 @@ function sanitizeStringList(
   return values?.map((value) => sanitizeText(value, redactions)) ?? [];
 }
 
+function sanitizeIssueRequest(
+  issueRequest: ReviewPacketIssueRequestInput | undefined,
+  redactions: Set<string>,
+): ReviewPacketIssueRequestInput | undefined {
+  if (issueRequest === undefined) {
+    return undefined;
+  }
+
+  return {
+    source: issueRequest.source,
+    summary: sanitizeText(issueRequest.summary, redactions),
+    requesterRef:
+      issueRequest.requesterRef === undefined
+        ? undefined
+        : sanitizeText(issueRequest.requesterRef, redactions),
+  };
+}
+
+function sanitizePlan(
+  plan: ReviewPacketPlanInput | undefined,
+  redactions: Set<string>,
+): ReviewPacketPlanInput | undefined {
+  if (plan === undefined) {
+    return undefined;
+  }
+
+  return {
+    summary: sanitizeText(plan.summary, redactions),
+    approvalRef:
+      plan.approvalRef === undefined
+        ? undefined
+        : sanitizeText(plan.approvalRef, redactions),
+    approved: plan.approved,
+  };
+}
+
+function sanitizeRollbackNote(
+  rollbackNote: ReviewPacketRollbackNoteInput | undefined,
+  redactions: Set<string>,
+): ReviewPacketRollbackNoteInput | undefined {
+  if (rollbackNote === undefined) {
+    return undefined;
+  }
+
+  return {
+    summary: sanitizeText(rollbackNote.summary, redactions),
+    artifactRefs: sanitizeStringList(rollbackNote.artifactRefs, redactions),
+  };
+}
+
 function isHighRiskArtifact(artifact: ReviewPacketArtifactInput): boolean {
   return (
     artifact.kind === "contract" ||
@@ -163,18 +278,28 @@ function isHighRiskArtifact(artifact: ReviewPacketArtifactInput): boolean {
 
 function evaluateAcceptance(
   criteria: readonly AcceptanceCriterionInput[],
-  evidenceIds: Set<string>,
+  evidenceById: ReadonlyMap<string, ReviewPacketVerificationEvidence>,
   redactions: Set<string>,
 ): ReviewPacketChecklistItem[] {
   return criteria.map((criterion) => {
     const refs = sanitizeStringList(criterion.evidenceRefs, redactions).filter(
-      (ref) => evidenceIds.has(ref),
+      (ref) => evidenceById.has(ref),
     );
+    const linkedEvidence = refs.map((ref) => evidenceById.get(ref));
+    const hasFailedEvidence = linkedEvidence.some(
+      (item) => item?.status === "failed" || item?.status === "blocked",
+    );
+    const status =
+      refs.length === 0
+        ? "unverified"
+        : hasFailedEvidence
+          ? "failed"
+          : "accepted";
 
     return {
       id: sanitizeText(criterion.id, redactions),
       text: sanitizeText(criterion.text, redactions),
-      status: refs.length > 0 ? "covered" : "missing",
+      status,
       evidenceRefs: refs,
     };
   });
@@ -191,7 +316,7 @@ function buildRiskSignals(
   const testEvidence = evidence.filter((item) => item.kind === "test");
 
   const missingAcceptanceRefs = checklist
-    .filter((item) => item.status === "missing")
+    .filter((item) => item.status === "unverified")
     .map((item) => item.id);
   if (missingAcceptanceRefs.length > 0) {
     signals.push({
@@ -231,6 +356,16 @@ function buildRiskSignals(
     }
   }
 
+  for (const note of input.riskNotes ?? []) {
+    signals.push({
+      code:
+        note.severity === "danger" ? "rework_requested" : "high_risk_change",
+      severity: note.severity,
+      message: sanitizeText(note.summary, redactions),
+      evidenceRefs: sanitizeStringList(note.evidenceRefs, redactions),
+    });
+  }
+
   const highRiskRefs = changedArtifacts
     .filter(isHighRiskArtifact)
     .map((artifact) => artifact.path);
@@ -268,7 +403,7 @@ function buildMissingEvidenceWarnings(
   evidence: readonly ReviewPacketVerificationEvidence[],
 ): readonly string[] {
   const warnings = checklist
-    .filter((item) => item.status === "missing")
+    .filter((item) => item.status === "unverified")
     .map((item) => `Missing evidence for ${item.id}`);
 
   if (!evidence.some((item) => item.kind === "test")) {
@@ -278,11 +413,61 @@ function buildMissingEvidenceWarnings(
   return warnings;
 }
 
+function buildDecisionPrompt(
+  checklist: readonly ReviewPacketChecklistItem[],
+  riskSignals: readonly ReviewPacketSignal[],
+  missingEvidenceWarnings: readonly string[],
+): ReviewPacket["decisionPrompt"] {
+  const hasReworkRisk = riskSignals.some(
+    (signal) =>
+      signal.severity === "danger" ||
+      signal.code === "verification_failed" ||
+      signal.code === "rework_requested",
+  );
+  const hasUnverifiedAcceptance = checklist.some(
+    (item) => item.status === "unverified",
+  );
+  const hasFailedAcceptance = checklist.some(
+    (item) => item.status === "failed",
+  );
+
+  if (hasReworkRisk || hasFailedAcceptance) {
+    return {
+      recommendedAction: "request_rework",
+      reasons: riskSignals
+        .filter((signal) => signal.severity === "danger")
+        .map((signal) => signal.message),
+      requiredFollowUps: [
+        "Resolve failed or blocked evidence before marking the work done.",
+      ],
+    };
+  }
+
+  if (hasUnverifiedAcceptance || missingEvidenceWarnings.length > 0) {
+    return {
+      recommendedAction: "request_evidence",
+      reasons: missingEvidenceWarnings,
+      requiredFollowUps: [
+        "Attach verification evidence for every acceptance criterion.",
+      ],
+    };
+  }
+
+  return {
+    recommendedAction: "approve_done",
+    reasons: ["All acceptance criteria have linked passing evidence."],
+    requiredFollowUps: [],
+  };
+}
+
 export async function generateReviewPacket(
   input: ReviewPacketInput,
   provider: ReviewPacketTextProvider = new FakeReviewPacketTextProvider(),
 ): Promise<ReviewPacket> {
   const redactions = new Set<string>();
+  const issueRequest = sanitizeIssueRequest(input.issueRequest, redactions);
+  const plan = sanitizePlan(input.plan, redactions);
+  const rollbackNote = sanitizeRollbackNote(input.rollbackNote, redactions);
   const evidence = input.verificationEvidence.map((item) => ({
     id: sanitizeText(item.id, redactions),
     kind: item.kind,
@@ -298,7 +483,6 @@ export async function generateReviewPacket(
         ? undefined
         : sanitizeText(item.correlationId, redactions),
   }));
-  const evidenceIds = new Set(evidence.map((item) => item.id));
   const changedArtifacts = input.changedArtifacts.map((artifact) => ({
     path: sanitizeText(artifact.path, redactions),
     kind: artifact.kind,
@@ -310,7 +494,7 @@ export async function generateReviewPacket(
   }));
   const acceptanceChecklist = evaluateAcceptance(
     input.acceptanceCriteria,
-    evidenceIds,
+    new Map(evidence.map((item) => [item.id, item])),
     redactions,
   );
   const riskSignals = buildRiskSignals(
@@ -333,18 +517,29 @@ export async function generateReviewPacket(
     acceptanceChecklist,
     evidence,
   );
+  const decisionPrompt = buildDecisionPrompt(
+    acceptanceChecklist,
+    riskSignals,
+    missingEvidenceWarnings,
+  );
 
   return {
     schemaVersion: "review_packet.v0",
     issueKey: sanitizeText(input.issueKey, redactions),
+    sourceSchemaVersion:
+      input.schemaVersion ?? "review_packet_fixture_input.v0",
     summary,
+    issueRequest,
+    plan,
     changedArtifacts,
     acceptanceChecklist,
     riskSignals,
     uncertainty,
     rollbackOrReworkGuidance,
+    rollbackNote,
     verificationEvidence: evidence,
     missingEvidenceWarnings,
+    decisionPrompt,
     audit: {
       correlationIds: evidence
         .map((item) => item.correlationId)

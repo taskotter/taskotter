@@ -42,24 +42,56 @@ function packet({
   missingEvidenceWarnings?: readonly string[];
   redactions?: readonly string[];
 }): DemoCanonicalReviewPacket {
+  const acceptanceChecklist = acceptanceCriteria.map((criterion) => ({
+    id: criterion.id,
+    text: criterion.text,
+    status: criterion.satisfied ? "accepted" : "unverified",
+    evidenceRefs: criterion.satisfied
+      ? verificationEvidence.map((evidence) => evidence.id)
+      : [],
+  })) satisfies DemoCanonicalReviewPacket["acceptanceChecklist"];
+  const hasDangerRisk = riskSignals.some(
+    (signal) => signal.severity === "danger",
+  );
+  const hasUnverified = acceptanceChecklist.some(
+    (criterion) => criterion.status === "unverified",
+  );
+
   return {
     schemaVersion: "review_packet.v0",
+    sourceSchemaVersion: "review_packet_fixture_input.v0",
     issueKey,
     summary,
     changedArtifacts,
-    acceptanceChecklist: acceptanceCriteria.map((criterion) => ({
-      id: criterion.id,
-      text: criterion.text,
-      status: criterion.satisfied ? "covered" : "missing",
-      evidenceRefs: criterion.satisfied
-        ? verificationEvidence.map((evidence) => evidence.id)
-        : [],
-    })),
+    acceptanceChecklist,
     riskSignals,
     uncertainty,
     rollbackOrReworkGuidance,
     verificationEvidence,
     missingEvidenceWarnings,
+    decisionPrompt: hasDangerRisk
+      ? {
+          recommendedAction: "request_rework",
+          reasons: riskSignals
+            .filter((signal) => signal.severity === "danger")
+            .map((signal) => signal.message),
+          requiredFollowUps: [
+            "Resolve failed or blocked evidence before marking the work done.",
+          ],
+        }
+      : hasUnverified || missingEvidenceWarnings.length > 0
+        ? {
+            recommendedAction: "request_evidence",
+            reasons: [...missingEvidenceWarnings],
+            requiredFollowUps: [
+              "Attach verification evidence for every acceptance criterion.",
+            ],
+          }
+        : {
+            recommendedAction: "approve_done",
+            reasons: ["All acceptance criteria have linked passing evidence."],
+            requiredFollowUps: [],
+          },
     audit: {
       correlationIds: verificationEvidence
         .map((evidence) => evidence.correlationId)

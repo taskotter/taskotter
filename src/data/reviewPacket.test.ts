@@ -5,10 +5,20 @@ import {
   type ReviewPacketInput,
   type ReviewPacketTextProvider,
 } from "./reviewPacket";
+import { reviewPacketFixtureInputs } from "./reviewPacketFixtures";
 
 const baseInput = {
   issueKey: "BOG-573",
   title: "Review packet generation scaffold",
+  issueRequest: {
+    source: "multica_issue",
+    summary: "Assemble imported agent evidence for reviewer decisions.",
+  },
+  plan: {
+    summary: "Build deterministic fixture-backed packet generation.",
+    approvalRef: "approval_bog_573_plan",
+    approved: true,
+  },
   changedArtifacts: [
     {
       path: "src/data/reviewPacket.ts",
@@ -52,6 +62,10 @@ const baseInput = {
       correlationId: "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EQ",
     },
   ],
+  rollbackNote: {
+    summary: "Revert the fixture-backed review packet files.",
+    artifactRefs: ["src/data/reviewPacket.ts"],
+  },
   uncertaintyNotes: ["Provider text generation is stubbed only."],
 } satisfies ReviewPacketInput;
 
@@ -64,21 +78,27 @@ describe("review packet generation", () => {
 
     expect(packet).toMatchObject({
       schemaVersion: "review_packet.v0",
+      sourceSchemaVersion: "review_packet_fixture_input.v0",
       issueKey: "BOG-573",
       summary: "BOG-573: Review packet generation scaffold",
       missingEvidenceWarnings: [],
       acceptanceChecklist: [
         {
           id: "ac-stable-packet",
-          status: "covered",
+          status: "accepted",
           evidenceRefs: ["ev-unit"],
         },
         {
           id: "ac-redaction",
-          status: "covered",
+          status: "accepted",
           evidenceRefs: ["ev-redaction"],
         },
       ],
+      decisionPrompt: {
+        recommendedAction: "approve_done",
+        reasons: ["All acceptance criteria have linked passing evidence."],
+        requiredFollowUps: [],
+      },
       audit: {
         correlationIds: [
           "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
@@ -110,7 +130,7 @@ describe("review packet generation", () => {
       {
         id: "ac-uncovered",
         text: "Reviewer can see missing evidence.",
-        status: "missing",
+        status: "unverified",
         evidenceRefs: [],
       },
     ]);
@@ -152,6 +172,12 @@ describe("review packet generation", () => {
       message: "test evidence failed.",
       evidenceRefs: ["ev-fixture-fail"],
     });
+    expect(packet.acceptanceChecklist[0]).toMatchObject({
+      id: "ac-test-fail-visible",
+      status: "failed",
+      evidenceRefs: ["ev-fixture-fail"],
+    });
+    expect(packet.decisionPrompt.recommendedAction).toBe("request_rework");
     expect(packet.audit.correlationIds).toEqual([
       "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2ER",
     ]);
@@ -205,6 +231,15 @@ describe("review packet generation", () => {
             summary: "Removed api_key=raw-provider-key from display.",
           },
         ],
+        issueRequest: {
+          source: "manual_fixture",
+          summary:
+            "Import raw_prompt=unsafe-fixture only as a redacted marker.",
+        },
+        plan: {
+          summary: "Avoid Authorization: bearer values in packet fields.",
+          approved: true,
+        },
         acceptanceCriteria: [
           {
             id: "ac-secret",
@@ -222,6 +257,10 @@ describe("review packet generation", () => {
             correlationId: "corr_safe_review_packet_redaction",
           },
         ],
+        rollbackNote: {
+          summary: "Rollback artifact mentioned api_key=raw-rollback-key.",
+          artifactRefs: ["artifact_safe_redaction"],
+        },
         rollbackHint:
           "Rollback note contained refresh_token=raw-refresh-token.",
       },
@@ -235,9 +274,70 @@ describe("review packet generation", () => {
     expect(serialized).not.toContain("raw-access-token");
     expect(serialized).not.toContain("raw-password");
     expect(serialized).not.toContain("raw-refresh-token");
+    expect(serialized).not.toContain("raw-rollback-key");
+    expect(serialized).not.toContain("unsafe-fixture");
     expect(packet.summary).toBe(
       "Provider summary included [redacted] and must be safe.",
     );
-    expect(packet.audit.redactions).toHaveLength(6);
+    expect(packet.audit.redactions).toContain("api_key");
+    expect(packet.audit.redactions).toContain("bearer_token");
+  });
+
+  it("assembles three representative temporary fixture schema packets deterministically", async () => {
+    const packets = await Promise.all(
+      reviewPacketFixtureInputs.map((fixture) => generateReviewPacket(fixture)),
+    );
+
+    expect(packets.map((packet) => packet.issueKey)).toEqual([
+      "FIX-101",
+      "FIX-102",
+      "FIX-103",
+    ]);
+    expect(
+      packets.map((packet) => packet.decisionPrompt.recommendedAction),
+    ).toEqual(["approve_done", "request_evidence", "request_rework"]);
+    expect(
+      packets.map((packet) =>
+        packet.acceptanceChecklist.map((criterion) => criterion.status),
+      ),
+    ).toEqual([
+      ["accepted", "accepted"],
+      ["accepted", "unverified"],
+      ["failed"],
+    ]);
+
+    const firstRender = JSON.stringify(packets);
+    const secondRender = JSON.stringify(
+      await Promise.all(
+        reviewPacketFixtureInputs.map((fixture) =>
+          generateReviewPacket(fixture),
+        ),
+      ),
+    );
+    expect(secondRender).toBe(firstRender);
+  });
+
+  it("keeps representative fixtures redaction-safe and summary-only", async () => {
+    const serialized = JSON.stringify(
+      await Promise.all(
+        reviewPacketFixtureInputs.map((fixture) =>
+          generateReviewPacket(fixture),
+        ),
+      ),
+    );
+    const unsafePatterns = [
+      /bearer\s+[a-z0-9._-]{12,}/i,
+      /api[_-]?key\s*[:=]/i,
+      /access[_-]?token\s*[:=]/i,
+      /client[_-]?secret\s*[:=]/i,
+      /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+      /raw[_ -]?(log|prompt|artifact body|diff|transcript)/i,
+    ];
+
+    for (const pattern of unsafePatterns) {
+      expect(serialized).not.toMatch(pattern);
+    }
+    expect(serialized).not.toContain("full_diff");
+    expect(serialized).not.toContain("transcript_copy");
   });
 });
