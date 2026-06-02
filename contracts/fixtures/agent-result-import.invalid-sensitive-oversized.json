@@ -1,0 +1,36 @@
+{
+  "schema_version": "agent_result_import.v1",
+  "work_item_id": "018f30d5-9471-7c4c-85c4-0e14c3f76c12",
+  "request_ref": "issue_BOG_619",
+  "source_type": "manual_paste",
+  "source_agent_run_ref": "manual_paste_invalid_fixture",
+  "plan_summary": "Reject unsafe or oversized import payloads before review packet assembly.",
+  "summary": "This fixture intentionally includes a secret-shaped marker password=fixture-secret and an oversize marker.",
+  "acceptance_criteria": [
+    {
+      "id": "ac_reject_unsafe_import",
+      "text": "Validation rejects secret-shaped or oversized import input without echoing the unsafe value.",
+      "evidence_refs": ["command:1"]
+    }
+  ],
+  "changed_files": [
+    {
+      "path": "crates/taskotter-control-plane/src/agent_result.rs",
+      "change_type": "modified",
+      "summary": "The validation summary is intentionally too long when repeated by tests."
+    }
+  ],
+  "artifacts": [],
+  "commands": [
+    {
+      "command": "cargo test -p taskotter-control-plane",
+      "outcome": "passed",
+      "summary": "Secret-shaped fields are redacted or rejected and oversize fields return only field-level errors."
+    }
+  ],
+  "risk_notes": "Invalid fixture; tests mutate this payload to exercise both secret and oversize rejection.",
+  "uncertainty": null,
+  "error_notes": null,
+  "retry_notes": null,
+  "rollback_notes": null
+}

@@ -1,0 +1,52 @@
+{
+  "schema_version": "agent_result_import.v1",
+  "work_item_id": "018f30d5-9471-7c4c-85c4-0e14c3f76c11",
+  "request_ref": "github_pr_taskotter_573",
+  "source_type": "github_pr_link",
+  "source_agent_run_ref": "pr_metadata_stub_573",
+  "plan_summary": "Use PR metadata and sanitized summaries only; do not fetch or embed raw transcript bodies.",
+  "summary": "Review packet generation branch adds deterministic assembly and tests.",
+  "acceptance_criteria": [
+    {
+      "id": "ac_pr_metadata_only",
+      "text": "PR/link import uses metadata references and sanitized summaries.",
+      "evidence_refs": ["artifact:pr_taskotter_573"]
+    },
+    {
+      "id": "ac_review_packet_ready",
+      "text": "Imported metadata has enough evidence for review packet assembly.",
+      "evidence_refs": ["command:1"]
+    }
+  ],
+  "changed_files": [
+    {
+      "path": "src/data/reviewPacket.ts",
+      "change_type": "modified",
+      "summary": "Maps verification and artifact evidence into the review packet contract."
+    },
+    {
+      "path": "src/data/reviewPacket.test.ts",
+      "change_type": "modified",
+      "summary": "Covers deterministic packet, missing evidence, and redaction behavior."
+    }
+  ],
+  "artifacts": [
+    {
+      "artifact_ref": "pr_taskotter_573",
+      "label": "Pull request metadata stub",
+      "media_type": "application/json"
+    }
+  ],
+  "commands": [
+    {
+      "command": "npm run test:unit -- src/data/reviewPacket.test.ts",
+      "outcome": "passed",
+      "summary": "Review packet tests passed against sanitized PR metadata."
+    }
+  ],
+  "risk_notes": "Contract field names are shared with review-control prototype children.",
+  "uncertainty": "This is a metadata stub and does not call the GitHub API.",
+  "error_notes": null,
+  "retry_notes": null,
+  "rollback_notes": "Revert the metadata fixture and adapter mapping if downstream contract names change."
+}
