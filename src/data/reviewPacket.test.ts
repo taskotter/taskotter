@@ -283,6 +283,60 @@ describe("review packet generation", () => {
     expect(packet.audit.redactions).toContain("bearer_token");
   });
 
+  it("redacts standalone provider token placeholders across generated packet fields", async () => {
+    const provider = {
+      summarize: async () =>
+        "Provider summary saw sk-standalone123456789 and xoxb-1234567890abcdef.",
+    } satisfies ReviewPacketTextProvider;
+    const packet = await generateReviewPacket(
+      {
+        ...baseInput,
+        changedArtifacts: [
+          {
+            path: "src/data/reviewPacket.ts",
+            kind: "source",
+            summary:
+              "Artifact summary included ghp_1234567890abcdef and AKIA1234567890AB.",
+          },
+        ],
+        verificationEvidence: [
+          {
+            id: "ev-standalone-provider-token",
+            kind: "test",
+            status: "passed",
+            summary: "Verification summary referenced gho_1234567890abcdef.",
+            command: "echo xoxa-1234567890abcdef",
+            artifactRefs: ["src/data/reviewPacket.test.ts"],
+          },
+        ],
+        acceptanceCriteria: [
+          {
+            id: "ac-standalone-provider-token",
+            text: "Standalone provider-shaped token placeholders are redacted.",
+            evidenceRefs: ["ev-standalone-provider-token"],
+          },
+        ],
+      },
+      provider,
+    );
+
+    const serialized = JSON.stringify(packet);
+    expect(serialized).not.toContain("sk-standalone123456789");
+    expect(serialized).not.toContain("xoxb-1234567890abcdef");
+    expect(serialized).not.toContain("ghp_1234567890abcdef");
+    expect(serialized).not.toContain("AKIA1234567890AB");
+    expect(serialized).not.toContain("gho_1234567890abcdef");
+    expect(serialized).not.toContain("xoxa-1234567890abcdef");
+    expect(packet.audit.redactions).toEqual(
+      expect.arrayContaining([
+        "aws_access_key_id",
+        "github_token",
+        "openai_secret_key",
+        "slack_token",
+      ]),
+    );
+  });
+
   it("assembles three representative temporary fixture schema packets deterministically", async () => {
     const packets = await Promise.all(
       reviewPacketFixtureInputs.map((fixture) => generateReviewPacket(fixture)),

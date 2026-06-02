@@ -149,6 +149,22 @@ export class FakeReviewPacketTextProvider implements ReviewPacketTextProvider {
 const sensitivePatterns: readonly { label: string; pattern: RegExp }[] = [
   { label: "bearer_token", pattern: /bearer\s+[a-z0-9._-]+/gi },
   {
+    label: "openai_secret_key",
+    pattern: /sk-[a-z0-9_-]{12,}/gi,
+  },
+  {
+    label: "github_token",
+    pattern: /gh[pousr]_[a-z0-9_]{12,}/gi,
+  },
+  {
+    label: "slack_token",
+    pattern: /xox[baprs]-[a-z0-9-]{12,}/gi,
+  },
+  {
+    label: "aws_access_key_id",
+    pattern: /AKIA[0-9A-Z]{12,}/g,
+  },
+  {
     label: "api_key",
     pattern: /api[_-]?key\s*[:=]\s*["']?[^"',\s]+/gi,
   },
