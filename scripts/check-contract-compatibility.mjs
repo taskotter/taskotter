@@ -40,6 +40,9 @@ const gatewayRequest = await readJson(
 const syntheticChain = await readJson(
   "contracts/fixtures/audit-chain.synthetic-correlation-run.json",
 );
+const reviewPacket = await readJson(
+  "contracts/fixtures/review-packet.prototype.json",
+);
 
 assert.equal(
   openapi.info.version,
@@ -52,6 +55,13 @@ assertSupportedVersion(
   "policy_decision_versions",
   policyDecision.schema_version,
   "policy decision fixture",
+);
+assertSupportedVersion(
+  matrix,
+  "control_plane",
+  "review_packet_versions",
+  reviewPacket.schema_version,
+  "review packet fixture",
 );
 
 for (const [name, event] of [
@@ -259,6 +269,16 @@ assert.equal(
 assert.equal(missingEvidence.payload.decision_hint, "rework");
 assert.equal(reworkFinalResult.payload.status, "rework");
 assert.equal(missingFinalResult.payload.status, "rework");
+assert.equal(
+  doneReviewPacket.payload.review_packet_id,
+  reviewPacket.packet_id,
+  "review packet fixture must share the generated packet id with the synthetic chain",
+);
+assert.equal(
+  reviewPacket.compatibility.versioning_strategy,
+  "additive_minor_fields_only",
+  "review packet fixture must document backward-compatible additive versioning",
+);
 assert.notEqual(
   reworkEvidenceImport.payload.evidence_import_id,
   doneEvidenceImport.payload.evidence_import_id,

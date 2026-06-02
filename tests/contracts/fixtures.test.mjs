@@ -232,10 +232,117 @@ test("runtime fixtures match their canonical schemas", async () => {
       "contracts/schemas/workflow-definition.schema.json",
       "contracts/fixtures/workflow-definition.automation-contract.json",
     ],
+    [
+      "contracts/schemas/review-packet.schema.json",
+      "contracts/fixtures/review-packet.prototype.json",
+    ],
   ];
 
   for (const [schemaPath, fixturePath] of cases) {
     validate(await readJson(schemaPath), await readJson(fixturePath));
+  }
+});
+
+test("review packet contract captures review-control evidence boundaries", async () => {
+  const schema = await readJson("contracts/schemas/review-packet.schema.json");
+  const packet = await readJson(
+    "contracts/fixtures/review-packet.prototype.json",
+  );
+
+  validate(schema, packet);
+  assert.equal(packet.schema_version, "review-packet@0.1.0");
+  assert.equal(packet.plan_approval.state, "approved");
+  assert.equal(
+    packet.raw_content_boundary.raw_transcript_storage,
+    "reference_only",
+  );
+  assert.equal(packet.raw_content_boundary.full_diff_storage, "reference_only");
+  assert.deepEqual(packet.compatibility, {
+    versioning_strategy: "additive_minor_fields_only",
+    breaking_change_policy: "new_major_schema_version",
+  });
+
+  const evidenceCategories = new Set(
+    packet.evidence_sources.map((source) => source.source_category),
+  );
+  for (const category of [
+    "generated_schema",
+    "fixture_validation",
+    "module_guard",
+  ]) {
+    assert.ok(
+      evidenceCategories.has(category),
+      `${category} evidence is required`,
+    );
+  }
+
+  const serialized = JSON.stringify(packet).toLowerCase();
+  for (const prohibited of [
+    "api_key",
+    "access_token",
+    "refresh_token",
+    "private_key",
+    "client_secret",
+    "bearer ",
+    "password",
+    "raw_prompt",
+    "raw_log",
+    "artifact_body",
+    "transcript_copy",
+  ]) {
+    assert.ok(
+      !serialized.includes(prohibited),
+      `review packet fixture must not include sensitive marker ${prohibited}`,
+    );
+  }
+});
+
+test("review packet safe refs reject mixed-case sensitive markers", async () => {
+  const schema = await readJson("contracts/schemas/review-packet.schema.json");
+  const packet = await readJson(
+    "contracts/fixtures/review-packet.prototype.json",
+  );
+  const cases = [
+    {
+      marker: "Raw_Transcript",
+      apply: (candidate) => {
+        candidate.work_item.summary_ref = "Raw_Transcript";
+      },
+    },
+    {
+      marker: "PRIVATE_KEY",
+      apply: (candidate) => {
+        candidate.plan_approval.approval_ref = "PRIVATE_KEY";
+      },
+    },
+    {
+      marker: "Customer_Data",
+      apply: (candidate) => {
+        candidate.evidence_sources[0].summary_ref = "Customer_Data";
+      },
+    },
+    {
+      marker: "Bearer token",
+      apply: (candidate) => {
+        candidate.rollback_path.summary_ref = "Bearer token";
+      },
+    },
+    {
+      marker: "Full_Diff",
+      apply: (candidate) => {
+        candidate.decision.decision_ref = "Full_Diff";
+      },
+    },
+  ];
+
+  for (const { marker, apply } of cases) {
+    const candidate = JSON.parse(JSON.stringify(packet));
+    apply(candidate);
+    assert.throws(
+      () => validate(schema, candidate),
+      /forbidden schema/,
+      `${marker} must be rejected by safeOpaqueRef`,
+    );
   }
 });
 
