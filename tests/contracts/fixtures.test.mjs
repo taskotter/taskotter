@@ -297,6 +297,55 @@ test("review packet contract captures review-control evidence boundaries", async
   }
 });
 
+test("review packet safe refs reject mixed-case sensitive markers", async () => {
+  const schema = await readJson("contracts/schemas/review-packet.schema.json");
+  const packet = await readJson(
+    "contracts/fixtures/review-packet.prototype.json",
+  );
+  const cases = [
+    {
+      marker: "Raw_Transcript",
+      apply: (candidate) => {
+        candidate.work_item.summary_ref = "Raw_Transcript";
+      },
+    },
+    {
+      marker: "PRIVATE_KEY",
+      apply: (candidate) => {
+        candidate.plan_approval.approval_ref = "PRIVATE_KEY";
+      },
+    },
+    {
+      marker: "Customer_Data",
+      apply: (candidate) => {
+        candidate.evidence_sources[0].summary_ref = "Customer_Data";
+      },
+    },
+    {
+      marker: "Bearer token",
+      apply: (candidate) => {
+        candidate.rollback_path.summary_ref = "Bearer token";
+      },
+    },
+    {
+      marker: "Full_Diff",
+      apply: (candidate) => {
+        candidate.decision.decision_ref = "Full_Diff";
+      },
+    },
+  ];
+
+  for (const { marker, apply } of cases) {
+    const candidate = JSON.parse(JSON.stringify(packet));
+    apply(candidate);
+    assert.throws(
+      () => validate(schema, candidate),
+      /forbidden schema/,
+      `${marker} must be rejected by safeOpaqueRef`,
+    );
+  }
+});
+
 test("high-risk runtime fixtures stay deny-by-default and metered by capability", async () => {
   const decision = await readJson(
     "contracts/fixtures/policy-decision.deny.high-risk-runtime.json",

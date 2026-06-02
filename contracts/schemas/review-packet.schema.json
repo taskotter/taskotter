@@ -239,7 +239,7 @@
       "type": "string",
       "maxLength": 120,
       "not": {
-        "pattern": "(api[_-]?key|access[_-]?token|refresh[_-]?token|private[_-]?key|client[_-]?secret|bearer |password|raw[_-]?prompt|raw[_-]?log|raw[_-]?transcript|full[_-]?diff|artifact[_-]?body|transcript[_-]?copy|secret[_-]?value|customer[_-]?data|private[_-]?roadmap|-----BEGIN)"
+        "pattern": "([aA][pP][iI][ _-]?[kK][eE][yY]|[aA][cC][cC][eE][sS][sS][ _-]?[tT][oO][kK][eE][nN]|[rR][eE][fF][rR][eE][sS][hH][ _-]?[tT][oO][kK][eE][nN]|[pP][rR][iI][vV][aA][tT][eE][ _-]?[kK][eE][yY]|[cC][lL][iI][eE][nN][tT][ _-]?[sS][eE][cC][rR][eE][tT]|[bB][eE][aA][rR][eE][rR]\\s+|[pP][aA][sS][sS][wW][oO][rR][dD]|[rR][aA][wW][ _-]?[pP][rR][oO][mM][pP][tT]|[rR][aA][wW][ _-]?[lL][oO][gG]|[rR][aA][wW][ _-]?[tT][rR][aA][nN][sS][cC][rR][iI][pP][tT]|[fF][uU][lL][lL][ _-]?[dD][iI][fF][fF]|[aA][rR][tT][iI][fF][aA][cC][tT][ _-]?[bB][oO][dD][yY]|[tT][rR][aA][nN][sS][cC][rR][iI][pP][tT][ _-]?[cC][oO][pP][yY]|[sS][eE][cC][rR][eE][tT][ _-]?[vV][aA][lL][uU][eE]|[cC][uU][sS][tT][oO][mM][eE][rR][ _-]?[dD][aA][tT][aA]|[pP][rR][iI][vV][aA][tT][eE][ _-]?[rR][oO][aA][dD][mM][aA][pP]|-----[bB][eE][gG][iI][nN])"
       }
     },
     "reviewPacketId": {
