@@ -1,8 +1,23 @@
 {
   "schema_version": "agent_result_import.v1",
   "work_item_id": "018f30d5-9471-7c4c-85c4-0e14c3f76c10",
-  "source_agent_run_ref": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2AR",
+  "request_ref": "issue_BOG_619",
+  "source_type": "manual_paste",
+  "source_agent_run_ref": "manual_paste_01J9Z4P4BS0M9P2QJ6T8Z6W2AR",
+  "plan_summary": "Define a narrow manual import boundary and prove that its output feeds review packet assembly.",
   "summary": "Implemented fixture-based import and evidence capture scaffold for review packet generation.",
+  "acceptance_criteria": [
+    {
+      "id": "ac_import_contract",
+      "text": "Manual agent result import contract is explicit and versioned.",
+      "evidence_refs": ["command:1"]
+    },
+    {
+      "id": "ac_review_packet_consumption",
+      "text": "Imported fixture output can be consumed by review packet assembly.",
+      "evidence_refs": ["command:2"]
+    }
+  ],
   "changed_files": [
     {
       "path": "crates/taskotter-control-plane/src/agent_result.rs",
@@ -27,9 +42,16 @@
       "command": "cargo test -p taskotter-control-plane",
       "outcome": "passed",
       "summary": "Control-plane unit tests passed for imported evidence mapping."
+    },
+    {
+      "command": "npm run test:unit -- src/data/agentResultImport.test.ts",
+      "outcome": "passed",
+      "summary": "Review packet assembly consumed the imported fixture."
     }
   ],
+  "risk_notes": "Fixture-only ingestion; no live runner, gateway, or GitHub API call is performed.",
   "uncertainty": "Prototype fixture only; no runner daemon or webhook integration is claimed.",
   "error_notes": null,
-  "retry_notes": "No retry was required for the fixture import."
+  "retry_notes": "No retry was required for the fixture import.",
+  "rollback_notes": "Remove the fixture import route and review packet adapter wiring."
 }

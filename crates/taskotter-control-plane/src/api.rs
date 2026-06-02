@@ -15,8 +15,8 @@ use uuid::Uuid;
 use crate::{
     agent_result::{
         ArtifactEvidence, ChangedFileEvidence, ChangedFileKind, CommandEvidence, CommandOutcome,
-        ImportAgentResultRequest, ImportedAgentResultEvidence, RedactionSummary,
-        ReviewPacketEvidence,
+        ImportAgentResultRequest, ImportSourceType, ImportedAcceptanceCriterion,
+        ImportedAgentResultEvidence, RedactionSummary, ReviewPacketEvidence,
     },
     audit::{AuditEvent, AuditEventId, CreateAuditEventRequest},
     authorization::{
@@ -1127,6 +1127,8 @@ impl IntoResponse for ApiError {
         IntakeSourceKind,
         Issue,
         ImportAgentResultRequest,
+        ImportSourceType,
+        ImportedAcceptanceCriterion,
         ImportedAgentResultEvidence,
         HealthAvailability,
         HealthDegradedReason,
@@ -2829,6 +2831,13 @@ mod tests {
                 .unwrap_or("")
                 .starts_with("evidence_")
         );
+        assert_eq!(packet["request_ref"], "issue_BOG_619");
+        assert_eq!(packet["source_type"], "manual_paste");
+        assert_eq!(
+            packet["plan_summary"],
+            "Define a narrow manual import boundary and prove that its output feeds review packet assembly."
+        );
+        assert_eq!(packet["acceptance_criteria"][0]["id"], "ac_import_contract");
         assert_eq!(packet["changed_files"].as_array().map(Vec::len), Some(2));
         assert_eq!(packet["commands"][0]["outcome"], "passed");
         assert_eq!(packet["redaction_summary"]["redacted"], false);
@@ -2904,6 +2913,52 @@ mod tests {
             &envelope,
             &["secret_token_value", "raw_log", "unknown field", "serde"],
         )?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn import_rejects_secret_refs_and_oversize_without_echoing_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut secret_ref_payload: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/agent-result-import.invalid-sensitive-oversized.json"
+        ))?;
+        let forbidden_ref = "issue_password_fixture_secret";
+        secret_ref_payload["request_ref"] = json!(forbidden_ref);
+        secret_ref_payload["summary"] = json!("Safe summary after ref rejection.");
+
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/agent-result-imports")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(secret_ref_payload.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_json_rejection_is_redacted(&envelope, &[forbidden_ref, "password"])?;
+
+        let mut oversized_payload: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/agent-result-import.invalid-sensitive-oversized.json"
+        ))?;
+        let oversize_marker = "oversize-fixture-marker";
+        oversized_payload["summary"] = json!(format!("{oversize_marker}{}", "x".repeat(4097)));
+
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/agent-result-imports")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(oversized_payload.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_json_rejection_is_redacted(&envelope, &[oversize_marker])?;
         Ok(())
     }
 
