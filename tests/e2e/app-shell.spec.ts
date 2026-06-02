@@ -29,6 +29,18 @@ test("app shell, issue detail, run progress, and setup first path render", async
   await expect(
     page.getByRole("heading", { name: /Threaded comments/i }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Prototype work item review/i }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Approve plan/i }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/BOG-571 has no final implementation evidence/i),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/\[REDACTED\] placeholders stand in/i),
+  ).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Reply" })).toBeVisible();
 });
 
@@ -43,6 +55,37 @@ test("keyboard focus reaches issue rows and composer", async ({ page }) => {
 
   await page.getByRole("textbox", { name: "Reply" }).focus();
   await expect(page.getByRole("textbox", { name: "Reply" })).toBeFocused();
+});
+
+test("review control plan and final decisions are selectable", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: /Approve plan/i }).click();
+  await expect(page.getByText("Plan approved")).toBeVisible();
+
+  await page.getByRole("button", { name: /Send to rework/i }).click();
+  await expect(page.getByText("Rework selected")).toBeVisible();
+});
+
+test("review packet shows redacted placeholders and hides secret-shaped values", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  await expect(
+    page.getByText(/\[REDACTED\] placeholders stand in/i),
+  ).toBeVisible();
+
+  const secretExposure = await page.evaluate(() => {
+    const text = document.body.textContent ?? "";
+    return /(sk-[A-Za-z0-9]{20,}|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]+PRIVATE KEY-----)/.test(
+      text,
+    );
+  });
+
+  expect(secretExposure).toBe(false);
 });
 
 test("responsive sidebar controls keep accessible names", async ({ page }) => {
@@ -272,4 +315,37 @@ test("first-run onboarding handles validation, read-only preview, keyboard, and 
     });
 
   expect(panelBounds).toBe(true);
+});
+
+test("review packet visual smoke has no horizontal overflow", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  const layout = await page.locator(".review-control").evaluate((surface) => {
+    const rect = surface.getBoundingClientRect();
+    const overflowing = Array.from(surface.querySelectorAll("*")).filter(
+      (element) => {
+        const childRect = element.getBoundingClientRect();
+        return (
+          childRect.left < rect.left - 1 || childRect.right > rect.right + 1
+        );
+      },
+    );
+
+    return {
+      width: rect.width,
+      overflowing: overflowing.length,
+      horizontalScroll: surface.scrollWidth > surface.clientWidth + 1,
+    };
+  });
+
+  expect(layout.width).toBeGreaterThan(0);
+  expect(layout.overflowing).toBe(0);
+  expect(layout.horizontalScroll).toBe(false);
+
+  await page.screenshot({
+    path: "test-results/review-control-prototype.png",
+    fullPage: true,
+  });
 });

@@ -132,11 +132,252 @@ export interface RunStep {
   severity: Severity;
 }
 
+export type ReviewSignalState =
+  | "ready"
+  | "loading"
+  | "empty"
+  | "error"
+  | "missing"
+  | "high_risk";
+
+export type ReviewDecisionKind =
+  | "approve"
+  | "request_changes"
+  | "done"
+  | "rework";
+
+export interface ReviewControlSignal {
+  id: string;
+  label: string;
+  detail: string;
+  state: ReviewSignalState;
+}
+
+export interface ReviewControlPlanStep {
+  id: string;
+  title: string;
+  detail: string;
+  status: "ready" | "needs_attention" | "blocked";
+}
+
+export interface ReviewControlEvidence {
+  id: string;
+  label: string;
+  detail: string;
+  state: ReviewSignalState;
+}
+
+export interface ReviewControlData {
+  request: {
+    key: string;
+    title: string;
+    source: string;
+    summary: string;
+  };
+  riskTier: "low" | "medium" | "high";
+  autonomyLevel: string;
+  planSteps: ReviewControlPlanStep[];
+  evidence: ReviewControlEvidence[];
+  signals: ReviewControlSignal[];
+  reviewChecklist: string[];
+  rollbackGuidance: string;
+  auditEvents: string[];
+}
+
 export interface SetupStep {
   id: string;
   title: string;
   state: "complete" | "active" | "locked" | "error";
   detail: string;
+}
+
+export type DemoReviewScenario =
+  | "happy_path"
+  | "missing_evidence"
+  | "failed_test"
+  | "rework_requested"
+  | "high_risk_approval_required";
+
+export type ReviewRiskTier = "low" | "medium" | "high";
+
+export type PlanApprovalState =
+  | "not_required"
+  | "pending"
+  | "approved"
+  | "rejected";
+
+export type EvidenceCheckStatus =
+  | "passed"
+  | "failed"
+  | "missing"
+  | "not_applicable";
+
+export interface DemoAcceptanceCriterion {
+  id: string;
+  text: string;
+  required: boolean;
+  satisfied: boolean;
+}
+
+export type DemoReviewPacketSeverity = "info" | "warning" | "danger";
+
+export type DemoVerificationStatus =
+  | "passed"
+  | "failed"
+  | "not_run"
+  | "blocked";
+
+export type DemoReviewPacketEvidenceKind =
+  | "test"
+  | "lint"
+  | "typecheck"
+  | "build"
+  | "review"
+  | "runtime";
+
+export interface DemoPlanApproval {
+  state: PlanApprovalState;
+  requiredBefore: "agent_start" | "protected_side_effect" | "not_required";
+  approvalRef?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  rationale: string;
+}
+
+export interface DemoEvidenceCheck {
+  name: string;
+  status: EvidenceCheckStatus;
+  summary: string;
+  artifactRef?: string;
+}
+
+export interface DemoImportedEvidenceSummary {
+  status: "complete" | "partial" | "failed";
+  sourceRunId: string;
+  importedAt: string;
+  changedFilesCount: number;
+  artifactCount: number;
+  checks: DemoEvidenceCheck[];
+  missingEvidence?: string[];
+}
+
+export interface DemoReviewPacketArtifact {
+  path: string;
+  kind: "source" | "test" | "fixture" | "contract" | "doc" | "config";
+  summary?: string;
+  riskTags?: readonly string[];
+}
+
+export interface DemoReviewPacketChecklistItem {
+  id: string;
+  text: string;
+  status: "covered" | "missing";
+  evidenceRefs: readonly string[];
+}
+
+export interface DemoReviewPacketSignal {
+  code:
+    | "missing_acceptance_evidence"
+    | "missing_tests"
+    | "verification_failed"
+    | "verification_blocked"
+    | "high_risk_change"
+    | "rework_requested";
+  severity: DemoReviewPacketSeverity;
+  message: string;
+  evidenceRefs: readonly string[];
+}
+
+export interface DemoReviewPacketVerificationEvidence {
+  id: string;
+  kind: DemoReviewPacketEvidenceKind;
+  status: DemoVerificationStatus;
+  summary: string;
+  command?: string;
+  artifactRefs: readonly string[];
+  correlationId?: string;
+}
+
+export interface DemoCanonicalReviewPacket {
+  schemaVersion: "review_packet.v0";
+  issueKey: string;
+  summary: string;
+  changedArtifacts: readonly DemoReviewPacketArtifact[];
+  acceptanceChecklist: readonly DemoReviewPacketChecklistItem[];
+  riskSignals: readonly DemoReviewPacketSignal[];
+  uncertainty: string[];
+  rollbackOrReworkGuidance: string;
+  verificationEvidence: readonly DemoReviewPacketVerificationEvidence[];
+  missingEvidenceWarnings: readonly string[];
+  audit: {
+    correlationIds: readonly string[];
+    redactions: readonly string[];
+  };
+}
+
+export interface DemoAuditChainSummary {
+  correlationId: string;
+  requestId: string;
+  policyDecisionId?: string;
+  approvalId?: string;
+  evidenceImportId: string;
+  reviewPacketId: string;
+  doneDecisionId?: string;
+  reworkDecisionId?: string;
+  workflowPath:
+    | "done_approved"
+    | "missing_evidence"
+    | "rework_requested"
+    | "denied";
+  eventIds: string[];
+}
+
+export interface DemoReviewTimeSummaryMetric {
+  source: "demo_summary_metric_not_event_telemetry";
+  derivedFromEventTelemetry: false;
+  baselineHumanReviewMinutes: number;
+  humanReviewMinutes: number;
+  humanMinutesPerCompletedAgentTask?: number;
+  completedAgentTasks: number;
+  reworkLoops: number;
+  missingStopEvents: number;
+  reviewerRole: "human_reviewer" | "qa_agent" | "delivery_lead";
+}
+
+export interface DemoRedactionSafety {
+  dataClassification: "generated_fake";
+  fakeOnly: true;
+  secretShapedCase?: {
+    inputLabel: string;
+    displayValue: "[REDACTED_FAKE_SECRET_SHAPED_VALUE]";
+    rawValueStored: false;
+    validationNote: string;
+  };
+}
+
+export interface DemoReviewWorkItem {
+  scenario: DemoReviewScenario;
+  id: string;
+  key: string;
+  title: string;
+  status: IssueStatus;
+  riskTier: ReviewRiskTier;
+  assignee: string;
+  requestSource: "github_issue" | "multica_issue" | "manual_request";
+  acceptanceCriteria: DemoAcceptanceCriterion[];
+  planApproval: DemoPlanApproval;
+  importedEvidenceSummary: DemoImportedEvidenceSummary;
+  reviewPacket: DemoCanonicalReviewPacket;
+  demoAuditChainSummary: DemoAuditChainSummary;
+  demoReviewTimeSummaryMetric: DemoReviewTimeSummaryMetric;
+  redactionSafety: DemoRedactionSafety;
+}
+
+export interface DemoReviewControlSeed {
+  fixtureId: string;
+  generatedAt: string;
+  description: string;
+  workItems: DemoReviewWorkItem[];
 }
 
 export interface ConsoleData {
@@ -153,6 +394,8 @@ export interface ConsoleData {
   runSteps: RunStep[];
   setupSteps: SetupStep[];
   firstRunOnboarding: FirstRunOnboarding;
+  reviewControl: ReviewControlData;
+  demoReviewControlSeed?: DemoReviewControlSeed;
 }
 
 export interface TaskOtterDataAdapter {

@@ -8,6 +8,7 @@ import type {
   IssueDetail,
   IssueStatus,
   IssueSummary,
+  ReviewControlData,
   RunStatus,
   RunStep,
   SetupStep,
@@ -545,6 +546,146 @@ function mapFirstRunOnboarding(
   };
 }
 
+function mapReviewControl(
+  snapshot: GeneratedConsoleSnapshot,
+): ReviewControlData {
+  const selectedIssue = snapshot.issues.data[0];
+  const selectedIssueKey = selectedIssue
+    ? displayKey(selectedIssue.id)
+    : "ISS-EMPTY";
+  const selectedIssueTitle = selectedIssue?.title ?? "No issue selected";
+  const hasComments = selectedIssue
+    ? snapshot.comments.data.some(
+        (comment) => comment.issue_id === selectedIssue.id,
+      )
+    : false;
+  const hasUsage = snapshot.usageEvents.data.length > 0;
+  const deniedAudit = snapshot.auditEvents.data.find(
+    (event) => event.payload.outcome === "denied",
+  );
+
+  return {
+    request: {
+      key: selectedIssueKey,
+      title: selectedIssueTitle,
+      source: "Generated control-plane issue",
+      summary:
+        selectedIssue?.description ??
+        "Waiting for a generated issue description before review control can proceed.",
+    },
+    riskTier: deniedAudit ? "high" : "medium",
+    autonomyLevel: deniedAudit
+      ? "Human approval required before continuation"
+      : "Human review required before final decision",
+    planSteps: [
+      {
+        id: "request",
+        title: "Inspect request",
+        detail: selectedIssue
+          ? `${selectedIssueKey} is available through the generated issue list.`
+          : "No issue payload was returned.",
+        status: selectedIssue ? "ready" : "blocked",
+      },
+      {
+        id: "plan",
+        title: "Approve plan",
+        detail: hasComments
+          ? "Plan context is available from issue comments."
+          : "No plan comment has been returned yet.",
+        status: hasComments ? "ready" : "needs_attention",
+      },
+      {
+        id: "import",
+        title: "Import result",
+        detail: hasUsage
+          ? "Usage telemetry is available for review evidence."
+          : "Generated review packet evidence is not available yet.",
+        status: hasUsage ? "ready" : "blocked",
+      },
+    ],
+    evidence: [
+      {
+        id: "comments",
+        label: "Plan comments",
+        detail: hasComments
+          ? "Issue comments can be summarized in the review packet."
+          : "No comments are available for this issue.",
+        state: hasComments ? "ready" : "empty",
+      },
+      {
+        id: "usage",
+        label: "Verification telemetry",
+        detail: hasUsage
+          ? "Usage events are mapped without raw logs or credentials."
+          : "No usage event payload has been returned.",
+        state: hasUsage ? "ready" : "missing",
+      },
+      {
+        id: "audit",
+        label: "Audit correlation",
+        detail: deniedAudit
+          ? deniedAudit.payload.action
+          : "No denied audit event is attached.",
+        state: deniedAudit ? "high_risk" : "ready",
+      },
+      {
+        id: "packet",
+        label: "Review packet API",
+        detail:
+          "Dedicated review packet contracts are not part of the current generated client.",
+        state: "missing",
+      },
+      {
+        id: "redacted-placeholders",
+        label: "Redacted placeholders",
+        detail:
+          "[REDACTED] placeholders stand in for token, credential, or private log fields.",
+        state: "ready",
+      },
+    ],
+    signals: [
+      {
+        id: "risk",
+        label: deniedAudit ? "High risk" : "Review required",
+        detail: deniedAudit
+          ? "A denied policy decision is present in audit events."
+          : "Final decision remains gated by a human reviewer.",
+        state: deniedAudit ? "high_risk" : "ready",
+      },
+      {
+        id: "contract",
+        label: "Contract pending",
+        detail:
+          "Review-control-specific Domain/API fields are not final in the generated client.",
+        state: "missing",
+      },
+      {
+        id: "evidence",
+        label: "Evidence import",
+        detail: hasUsage
+          ? "Telemetry evidence is available."
+          : "Evidence import is waiting for generated packet support.",
+        state: hasUsage ? "ready" : "loading",
+      },
+    ],
+    reviewChecklist: [
+      "Request and source issue are visible.",
+      "Plan approval is separated from final done/rework.",
+      "Evidence is summarized without raw private logs.",
+      "Redacted placeholders are shown instead of secret-shaped values.",
+      "Missing evidence keeps the final decision visibly gated.",
+    ],
+    rollbackGuidance:
+      "Choose rework when the packet is incomplete, risk remains unresolved, or acceptance evidence is missing.",
+    auditEvents: [
+      `${selectedIssueKey} loaded from generated issue list`,
+      hasComments ? "Plan comments imported" : "Plan comments missing",
+      hasUsage ? "Telemetry evidence imported" : "Telemetry evidence missing",
+      "Done/rework decision pending",
+    ],
+  };
+}
+
 function mapIssueSummary(
   issue: ControlPlaneIssue,
   snapshot: GeneratedConsoleSnapshot,
@@ -650,6 +791,7 @@ export function mapGeneratedConsoleData(
     runSteps: mapRunSteps(snapshot),
     setupSteps: mapSetupSteps(snapshot),
     firstRunOnboarding: mapFirstRunOnboarding(snapshot),
+    reviewControl: mapReviewControl(snapshot),
   };
 }
 

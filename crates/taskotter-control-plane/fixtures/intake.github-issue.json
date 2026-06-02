@@ -1,0 +1,17 @@
+{
+  "working_group_id": "00000000-0000-0000-0000-000000000588",
+  "mode": "create",
+  "input": {
+    "source": "github_issue",
+    "title": "Issue shaped review-control request",
+    "body": "Fixture-only import for the review control prototype intake path.",
+    "source_url": "https://github.com/example/repo/issues/42",
+    "acceptance_criteria": [
+      "Created item carries source reference",
+      "Response uses a redacted structured work item input"
+    ],
+    "risk_tier_hint": "low",
+    "repository": "example/repo",
+    "issue_number": 42
+  }
+}

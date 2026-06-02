@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use axum::{
     Json, Router,
-    extract::{FromRequest, Request, State, rejection::JsonRejection},
+    extract::{FromRequest, Path, Request, State, rejection::JsonRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -13,15 +13,24 @@ use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
 
 use crate::{
+    agent_result::{
+        ArtifactEvidence, ChangedFileEvidence, ChangedFileKind, CommandEvidence, CommandOutcome,
+        ImportAgentResultRequest, ImportedAgentResultEvidence, RedactionSummary,
+        ReviewPacketEvidence,
+    },
     audit::{AuditEvent, AuditEventId, CreateAuditEventRequest},
     authorization::{
         AuthorizationContext, DelegatedAuthority, RoleBinding, WorkingGroupMembership,
         WorkingGroupRole,
     },
     domain::{
-        Comment, CommentId, CreateCommentRequest, CreateIssueRequest, CreateRegistryEntryRequest,
-        CreateWorkingGroupRequest, Issue, IssueId, IssueStatus, RegistryEntry, WorkingGroup,
-        WorkingGroupId,
+        AgentId, Comment, CommentId, CreateCommentRequest, CreateIssueRequest,
+        CreateRegistryEntryRequest, CreateWorkingGroupRequest, Issue, IssueId, IssueStatus,
+        RegistryEntry, WorkingGroup, WorkingGroupId,
+    },
+    intake::{
+        IntakeMode, IntakeRequest, IntakeResponse, IntakeSourceKind, IntakeValidationError,
+        PrototypeWorkItem, PrototypeWorkItemInput, RiskTierHint, WorkItemId,
     },
     operations::{
         HealthAvailability, HealthDegradedReason, HealthSignalRef, HealthTargetKind,
@@ -34,6 +43,22 @@ use crate::{
     policy::{
         BaselinePolicyEvaluator, PolicyActorRef, PolicyDecision, PolicyDecisionRequest,
         PolicyEvaluator,
+    },
+    protected_operations::{
+        ApprovalDecision, ApprovalDenial, ApprovalGateDecision, ApprovalGateRequest,
+        ApprovalGateStatus, ApprovalGateTrustBoundary, ApprovalRecord, ApprovalScope,
+        ApproverEligibility, ProtectedOperationAction, evaluate_approval_gate,
+    },
+    review_control::{
+        AcceptanceCriterion, ApproveReviewControlPlanRequest, AuditCorrelation, AutonomyLevel,
+        CompleteReviewControlRequest, CreateReviewControlWorkItemRequest, PlanApproval,
+        PlanApprovalState, ReviewControlError, ReviewControlRedactionSummary, ReviewControlState,
+        ReviewControlWorkItem, ReviewDecision, ReviewDecisionReasonCode, ReviewDecisionState,
+        RiskTier, UpdateReviewControlWorkItemRequest, WorkItemRequestContext, WorkItemSource,
+        WorkItemSourceType,
+    },
+    review_time::{
+        ReviewTelemetryEvaluationRequest, ReviewTimeMetrics, calculate_review_time_metrics,
     },
     usage::{
         CostReconciliationStatus, MeteringUnit, QuotaEnforcement, RemoteUsageReportV1,
@@ -66,9 +91,21 @@ struct Store {
     usage_reservations: Vec<UsageReservation>,
     usage_security_signals: Vec<UsageSecuritySignal>,
     remote_usage_reports: Vec<RemoteUsageReportV1>,
+    work_items: Vec<PrototypeWorkItem>,
+    imported_agent_result_evidence: Vec<ImportedAgentResultEvidence>,
+    review_packet_refs: Vec<ReviewPacketRef>,
+    review_control_work_items: Vec<ReviewControlWorkItem>,
     run_timeline_events: Vec<RunTimelineEventV1>,
     operations_audit_events: Vec<OperationsAuditEventV1>,
     operations_health_events: Vec<OperationsHealthEventV1>,
+}
+
+#[derive(Debug, Clone)]
+struct ReviewPacketRef {
+    work_item_id: IssueId,
+    evidence_id: String,
+    timeline_event_id: String,
+    audit_event_id: String,
 }
 
 impl Store {
@@ -107,6 +144,7 @@ pub struct ErrorEnvelope {
 pub enum ErrorCode {
     ValidationFailed,
     Conflict,
+    NotFound,
     InternalError,
 }
 
@@ -158,12 +196,42 @@ pub fn build_router(state: AppState) -> Router {
         .route("/openapi.json", get(openapi))
         .route("/v1/working-groups", post(create_working_group))
         .route("/v1/issues", post(create_issue))
+        .route("/v1/work-items/intake", post(intake_work_item))
         .route("/v1/comments", post(create_comment))
         .route("/v1/registry", post(create_registry_entry))
         .route("/v1/policy/decisions", post(evaluate_policy))
+        .route(
+            "/v1/protected-operations/approval-gate/fixture-evaluation",
+            post(evaluate_protected_operation_approval_gate),
+        )
         .route("/v1/usage/evaluate", post(evaluate_usage))
         .route("/v1/usage/events", post(create_usage_event))
         .route("/v1/remote/usage-reports", post(create_remote_usage_report))
+        // Internal-only prototype evaluator. It is intentionally omitted from
+        // ApiDoc/canonical OpenAPI until the review-time contract graduates.
+        .route("/v1/review-time/evaluate", post(evaluate_review_time))
+        .route("/v1/agent-result-imports", post(import_agent_result))
+        .route("/v1/review-packets/{work_item_id}", get(get_review_packet))
+        .route(
+            "/v1/review-control/work-items",
+            post(create_review_control_work_item),
+        )
+        .route(
+            "/v1/review-control/work-items/{work_item_id}",
+            get(get_review_control_work_item).patch(update_review_control_work_item),
+        )
+        .route(
+            "/v1/review-control/work-items/{work_item_id}/approve-plan",
+            post(approve_review_control_plan),
+        )
+        .route(
+            "/v1/review-control/work-items/{work_item_id}/done",
+            post(mark_review_control_done),
+        )
+        .route(
+            "/v1/review-control/work-items/{work_item_id}/rework",
+            post(request_review_control_rework),
+        )
         .route("/v1/audit/events", post(create_audit_event))
         .route(
             "/v1/operations/timeline/events",
@@ -254,6 +322,53 @@ async fn create_issue(
 
 #[utoipa::path(
     post,
+    path = "/v1/work-items/intake",
+    request_body = IntakeRequest,
+    responses((status = 200, body = IntakeResponse), (status = 201, body = IntakeResponse), (status = 400, body = ErrorResponse))
+)]
+async fn intake_work_item(
+    State(state): State<AppState>,
+    SafeJson(request): SafeJson<IntakeRequest>,
+) -> Result<(StatusCode, Json<IntakeResponse>), ApiError> {
+    let mode = request.mode.clone();
+    let input = request
+        .into_work_item_input()
+        .map_err(ApiError::from_intake_validation)?;
+
+    if mode == IntakeMode::Preview {
+        return Ok((
+            StatusCode::OK,
+            Json(IntakeResponse {
+                mode,
+                input,
+                work_item: None,
+            }),
+        ));
+    }
+
+    let work_item = PrototypeWorkItem {
+        id: WorkItemId::new(),
+        input: input.clone(),
+    };
+    state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal())?
+        .work_items
+        .push(work_item.clone());
+
+    Ok((
+        StatusCode::CREATED,
+        Json(IntakeResponse {
+            mode,
+            input,
+            work_item: Some(work_item),
+        }),
+    ))
+}
+
+#[utoipa::path(
+    post,
     path = "/v1/comments",
     request_body = CreateCommentRequest,
     responses((status = 201, body = Comment), (status = 400, body = ErrorResponse))
@@ -325,6 +440,18 @@ async fn evaluate_policy(
     let decision = state.policy_evaluator.evaluate(&request, &context);
     store.policy_decisions.push(decision.clone());
     Ok(Json(decision))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/protected-operations/approval-gate/fixture-evaluation",
+    request_body = ApprovalGateRequest,
+    responses((status = 200, body = ApprovalGateDecision), (status = 400, body = ErrorResponse))
+)]
+async fn evaluate_protected_operation_approval_gate(
+    SafeJson(request): SafeJson<ApprovalGateRequest>,
+) -> Json<ApprovalGateDecision> {
+    Json(evaluate_approval_gate(request))
 }
 
 #[utoipa::path(
@@ -416,6 +543,272 @@ async fn create_remote_usage_report(
         .push(report.clone());
 
     Ok((StatusCode::ACCEPTED, Json(report)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/review-time/evaluate",
+    request_body = ReviewTelemetryEvaluationRequest,
+    responses((status = 200, body = ReviewTimeMetrics), (status = 400, body = ErrorResponse))
+)]
+async fn evaluate_review_time(
+    SafeJson(request): SafeJson<ReviewTelemetryEvaluationRequest>,
+) -> Result<Json<ReviewTimeMetrics>, ApiError> {
+    let metrics = calculate_review_time_metrics(&request)
+        .map_err(|error| ApiError::invalid_payload_with_reason(&error.to_string()))?;
+    Ok(Json(metrics))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/agent-result-imports",
+    request_body = ImportAgentResultRequest,
+    responses((status = 202, body = ReviewPacketEvidence), (status = 400, body = ErrorResponse))
+)]
+async fn import_agent_result(
+    State(state): State<AppState>,
+    SafeJson(request): SafeJson<ImportAgentResultRequest>,
+) -> Result<(StatusCode, Json<ReviewPacketEvidence>), ApiError> {
+    let (evidence, timeline_event_id, audit_event_id) = request
+        .into_evidence()
+        .map_err(|error| ApiError::invalid_payload_with_reason(&error.to_string()))?;
+    let packet = evidence.to_review_packet(timeline_event_id.clone(), audit_event_id.clone());
+    let timeline_event =
+        imported_result_timeline_event(timeline_event_id.clone(), evidence.work_item_id);
+    timeline_event
+        .validate_for_ingestion()
+        .map_err(|_| ApiError::internal())?;
+    let audit_event = imported_result_audit_event(
+        audit_event_id.clone(),
+        evidence.work_item_id,
+        evidence.evidence_id.clone(),
+    )?;
+    let review_packet_ref = ReviewPacketRef {
+        work_item_id: evidence.work_item_id,
+        evidence_id: evidence.evidence_id.clone(),
+        timeline_event_id,
+        audit_event_id,
+    };
+
+    let mut store = state.store.lock().map_err(|_| ApiError::internal())?;
+    store.run_timeline_events.push(timeline_event);
+    store.audit_events.push(audit_event);
+    store.review_packet_refs.push(review_packet_ref);
+    store.imported_agent_result_evidence.push(evidence);
+
+    Ok((StatusCode::ACCEPTED, Json(packet)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/review-packets/{work_item_id}",
+    params(("work_item_id" = Uuid, Path, description = "Prototype work item identifier")),
+    responses((status = 200, body = ReviewPacketEvidence), (status = 404, body = ErrorResponse))
+)]
+async fn get_review_packet(
+    State(state): State<AppState>,
+    Path(work_item_id): Path<IssueId>,
+) -> Result<Json<ReviewPacketEvidence>, ApiError> {
+    let store = state.store.lock().map_err(|_| ApiError::internal())?;
+    let packet_ref = store
+        .review_packet_refs
+        .iter()
+        .rev()
+        .find(|packet_ref| packet_ref.work_item_id == work_item_id)
+        .ok_or_else(ApiError::not_found)?;
+    let evidence = store
+        .imported_agent_result_evidence
+        .iter()
+        .find(|evidence| evidence.evidence_id == packet_ref.evidence_id)
+        .ok_or_else(ApiError::not_found)?;
+
+    Ok(Json(evidence.to_review_packet(
+        packet_ref.timeline_event_id.clone(),
+        packet_ref.audit_event_id.clone(),
+    )))
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/review-control/work-items",
+    request_body = CreateReviewControlWorkItemRequest,
+    responses((status = 201, body = ReviewControlWorkItem), (status = 400, body = ErrorResponse))
+)]
+async fn create_review_control_work_item(
+    State(state): State<AppState>,
+    SafeJson(request): SafeJson<CreateReviewControlWorkItemRequest>,
+) -> Result<(StatusCode, Json<ReviewControlWorkItem>), ApiError> {
+    let work_item = request.into_work_item().map_err(ApiError::from)?;
+    state
+        .store
+        .lock()
+        .map_err(|_| ApiError::internal())?
+        .review_control_work_items
+        .push(work_item.clone());
+
+    Ok((StatusCode::CREATED, Json(work_item)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/review-control/work-items/{work_item_id}",
+    params(("work_item_id" = Uuid, Path, description = "Review control work item identifier")),
+    responses((status = 200, body = ReviewControlWorkItem), (status = 404, body = ErrorResponse))
+)]
+async fn get_review_control_work_item(
+    State(state): State<AppState>,
+    Path(work_item_id): Path<IssueId>,
+) -> Result<Json<ReviewControlWorkItem>, ApiError> {
+    let store = state.store.lock().map_err(|_| ApiError::internal())?;
+    let work_item = find_review_control_work_item(&store, work_item_id)?;
+    Ok(Json(work_item.clone()))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/v1/review-control/work-items/{work_item_id}",
+    params(("work_item_id" = Uuid, Path, description = "Review control work item identifier")),
+    request_body = UpdateReviewControlWorkItemRequest,
+    responses((status = 200, body = ReviewControlWorkItem), (status = 400, body = ErrorResponse), (status = 409, body = ErrorResponse), (status = 404, body = ErrorResponse))
+)]
+async fn update_review_control_work_item(
+    State(state): State<AppState>,
+    Path(work_item_id): Path<IssueId>,
+    SafeJson(request): SafeJson<UpdateReviewControlWorkItemRequest>,
+) -> Result<Json<ReviewControlWorkItem>, ApiError> {
+    mutate_review_control_work_item(state, work_item_id, |work_item| {
+        work_item.apply_update(request)
+    })
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/review-control/work-items/{work_item_id}/approve-plan",
+    params(("work_item_id" = Uuid, Path, description = "Review control work item identifier")),
+    request_body = ApproveReviewControlPlanRequest,
+    responses((status = 200, body = ReviewControlWorkItem), (status = 400, body = ErrorResponse), (status = 409, body = ErrorResponse), (status = 404, body = ErrorResponse))
+)]
+async fn approve_review_control_plan(
+    State(state): State<AppState>,
+    Path(work_item_id): Path<IssueId>,
+    SafeJson(request): SafeJson<ApproveReviewControlPlanRequest>,
+) -> Result<Json<ReviewControlWorkItem>, ApiError> {
+    mutate_review_control_work_item(state, work_item_id, |work_item| {
+        work_item.approve_plan(request)
+    })
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/review-control/work-items/{work_item_id}/done",
+    params(("work_item_id" = Uuid, Path, description = "Review control work item identifier")),
+    request_body = CompleteReviewControlRequest,
+    responses((status = 200, body = ReviewControlWorkItem), (status = 400, body = ErrorResponse), (status = 409, body = ErrorResponse), (status = 404, body = ErrorResponse))
+)]
+async fn mark_review_control_done(
+    State(state): State<AppState>,
+    Path(work_item_id): Path<IssueId>,
+    SafeJson(request): SafeJson<CompleteReviewControlRequest>,
+) -> Result<Json<ReviewControlWorkItem>, ApiError> {
+    mutate_review_control_work_item(state, work_item_id, |work_item| {
+        work_item.mark_done(request)
+    })
+}
+
+#[utoipa::path(
+    post,
+    path = "/v1/review-control/work-items/{work_item_id}/rework",
+    params(("work_item_id" = Uuid, Path, description = "Review control work item identifier")),
+    request_body = CompleteReviewControlRequest,
+    responses((status = 200, body = ReviewControlWorkItem), (status = 400, body = ErrorResponse), (status = 409, body = ErrorResponse), (status = 404, body = ErrorResponse))
+)]
+async fn request_review_control_rework(
+    State(state): State<AppState>,
+    Path(work_item_id): Path<IssueId>,
+    SafeJson(request): SafeJson<CompleteReviewControlRequest>,
+) -> Result<Json<ReviewControlWorkItem>, ApiError> {
+    mutate_review_control_work_item(state, work_item_id, |work_item| {
+        work_item.request_rework(request)
+    })
+}
+
+fn find_review_control_work_item(
+    store: &Store,
+    work_item_id: IssueId,
+) -> Result<&ReviewControlWorkItem, ApiError> {
+    store
+        .review_control_work_items
+        .iter()
+        .find(|work_item| work_item.id == work_item_id)
+        .ok_or_else(ApiError::not_found)
+}
+
+fn mutate_review_control_work_item(
+    state: AppState,
+    work_item_id: IssueId,
+    update: impl FnOnce(&mut ReviewControlWorkItem) -> Result<(), ReviewControlError>,
+) -> Result<Json<ReviewControlWorkItem>, ApiError> {
+    let mut store = state.store.lock().map_err(|_| ApiError::internal())?;
+    let work_item = store
+        .review_control_work_items
+        .iter_mut()
+        .find(|work_item| work_item.id == work_item_id)
+        .ok_or_else(ApiError::not_found)?;
+    update(work_item).map_err(ApiError::from)?;
+    Ok(Json(work_item.clone()))
+}
+
+fn imported_result_timeline_event(event_id: String, work_item_id: IssueId) -> RunTimelineEventV1 {
+    RunTimelineEventV1 {
+        id: event_id,
+        r#type: "operations.timeline.recorded".to_owned(),
+        envelope: imported_result_envelope(work_item_id),
+        stage: RunTimelineStage::Completed,
+        status_reason: Some(RunTimelineStatusReason::Completed),
+        usage_link: None,
+        health_signal: None,
+    }
+}
+
+fn imported_result_audit_event(
+    event_id: String,
+    work_item_id: IssueId,
+    evidence_id: String,
+) -> Result<AuditEvent, ApiError> {
+    Ok(AuditEvent {
+        id: AuditEventId(Uuid::parse_str(&event_id).map_err(|_| ApiError::internal())?),
+        working_group_id: WorkingGroupId::new(),
+        actor: crate::domain::Actor::Agent {
+            id: AgentId(Uuid::new_v4()),
+        },
+        action: "agent_result.imported".to_owned(),
+        resource: format!("issue:{}#{}", work_item_id.0, evidence_id),
+        outcome: crate::audit::AuditOutcome::Succeeded,
+    })
+}
+
+fn imported_result_envelope(work_item_id: IssueId) -> OperationsEventEnvelope {
+    let short_id = work_item_id.0.to_string();
+    OperationsEventEnvelope {
+        version: "0.1.0".to_owned(),
+        occurred_at: "2026-06-01T00:00:00Z".to_owned(),
+        working_group_id: format!("wg_{short_id}"),
+        tenant_id: Some(format!("tenant_{short_id}")),
+        correlation_id: format!("corr_{short_id}"),
+        request_id: format!("req_{short_id}"),
+        run_id: None,
+        job_id: None,
+        source: OperationsSourceSurface::ControlPlane,
+        actor: OperationsActorRef {
+            r#type: "agent".to_owned(),
+            id: format!("agent_{short_id}"),
+        },
+        resource: OperationsResourceRef {
+            r#type: "issue".to_owned(),
+            id: format!("issue_{short_id}"),
+        },
+        redaction: RedactionClassification::RedactedSummary,
+    }
 }
 
 #[utoipa::path(
@@ -592,12 +985,46 @@ impl ApiError {
         Self::invalid_payload()
     }
 
+    fn from_intake_validation(error: IntakeValidationError) -> Self {
+        match error {
+            IntakeValidationError::Required(field) => Self::required_field(field),
+            IntakeValidationError::MissingAcceptanceCriteria => {
+                Self::required_field("acceptance_criteria")
+            }
+            IntakeValidationError::BodyTooLarge => Self::invalid_field("body", "too large"),
+            IntakeValidationError::EmptyAcceptanceCriterion
+            | IntakeValidationError::TooManyAcceptanceCriteria => {
+                Self::invalid_field("acceptance_criteria", "invalid")
+            }
+            IntakeValidationError::SensitivePattern { field } => {
+                Self::invalid_field(field, "sensitive pattern")
+            }
+            IntakeValidationError::UnsupportedSourceUrl => {
+                Self::invalid_field("source_url", "unsupported")
+            }
+        }
+    }
+
     fn conflict() -> Self {
         Self {
             status: StatusCode::CONFLICT,
             body: ErrorEnvelope {
                 code: ErrorCode::Conflict,
                 message_key: "errors.conflict".to_owned(),
+                severity: ErrorSeverity::Error,
+                retryable: false,
+                field_errors: Vec::new(),
+                support: ErrorSupportMetadata { redacted: true },
+            },
+        }
+    }
+
+    fn not_found() -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            body: ErrorEnvelope {
+                code: ErrorCode::NotFound,
+                message_key: "errors.not_found".to_owned(),
                 severity: ErrorSeverity::Error,
                 retryable: false,
                 field_errors: Vec::new(),
@@ -621,6 +1048,19 @@ impl ApiError {
     }
 }
 
+impl From<ReviewControlError> for ApiError {
+    fn from(error: ReviewControlError) -> Self {
+        match error {
+            ReviewControlError::InvalidTransition => Self::conflict(),
+            ReviewControlError::Required(_)
+            | ReviewControlError::UnsupportedSchemaVersion
+            | ReviewControlError::UnsafeReference { .. }
+            | ReviewControlError::MissingAcceptanceCriteria
+            | ReviewControlError::ApprovalRequiredInvariantViolation => Self::invalid_payload(),
+        }
+    }
+}
+
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         (self.status, Json(ErrorResponse { error: self.body })).into_response()
@@ -633,24 +1073,45 @@ impl IntoResponse for ApiError {
         health,
         create_working_group,
         create_issue,
+        intake_work_item,
         create_comment,
         create_registry_entry,
         evaluate_policy,
+        evaluate_protected_operation_approval_gate,
         evaluate_usage,
         create_usage_event,
         create_remote_usage_report,
+        import_agent_result,
+        get_review_packet,
+        create_review_control_work_item,
+        get_review_control_work_item,
+        update_review_control_work_item,
+        approve_review_control_plan,
+        mark_review_control_done,
+        request_review_control_rework,
         create_audit_event,
         create_run_timeline_event,
         create_operations_audit_event,
         create_operations_health_event
     ),
     components(schemas(
+        AcceptanceCriterion,
+        ApproveReviewControlPlanRequest,
+        ArtifactEvidence,
+        AuditCorrelation,
+        AutonomyLevel,
         AuditEvent,
+        ChangedFileEvidence,
+        ChangedFileKind,
+        CommandEvidence,
+        CommandOutcome,
+        CompleteReviewControlRequest,
         CreateAuditEventRequest,
         Comment,
         CreateCommentRequest,
         CreateIssueRequest,
         CreateRegistryEntryRequest,
+        CreateReviewControlWorkItemRequest,
         CreateWorkingGroupRequest,
         ErrorCode,
         ErrorEnvelope,
@@ -660,7 +1121,13 @@ impl IntoResponse for ApiError {
         FieldError,
         FieldErrorCode,
         HealthResponse,
+        IntakeMode,
+        IntakeRequest,
+        IntakeResponse,
+        IntakeSourceKind,
         Issue,
+        ImportAgentResultRequest,
+        ImportedAgentResultEvidence,
         HealthAvailability,
         HealthDegradedReason,
         HealthSignalRef,
@@ -675,16 +1142,40 @@ impl IntoResponse for ApiError {
         OperationsHealthEventV1,
         OperationsResourceRef,
         OperationsSourceSurface,
+        PlanApproval,
+        PlanApprovalState,
+        ApprovalDecision,
+        ApprovalDenial,
+        ApprovalGateDecision,
+        ApprovalGateRequest,
+        ApprovalGateStatus,
+        ApprovalGateTrustBoundary,
+        ApprovalRecord,
+        ApprovalScope,
+        ApproverEligibility,
         PolicyDecision,
         PolicyDecisionRequest,
         PolicyActorRef,
+        ProtectedOperationAction,
         RedactionClassification,
+        RedactionSummary,
         RegistryEntry,
+        ReviewControlRedactionSummary,
+        ReviewControlState,
+        ReviewControlWorkItem,
+        ReviewDecision,
+        ReviewDecisionReasonCode,
+        ReviewDecisionState,
+        ReviewPacketEvidence,
         RoleBinding,
         RemoteUsageReportV1,
+        RiskTier,
         RunTimelineEventV1,
         RunTimelineStage,
         RunTimelineStatusReason,
+        PrototypeWorkItem,
+        PrototypeWorkItemInput,
+        RiskTierHint,
         CostReconciliationStatus,
         MeteringUnit,
         QuotaEnforcement,
@@ -703,6 +1194,11 @@ impl IntoResponse for ApiError {
         UsageSecuritySignalCode,
         UsageSourceSurface,
         UsageSubjectRef,
+        UpdateReviewControlWorkItemRequest,
+        WorkItemId,
+        WorkItemRequestContext,
+        WorkItemSource,
+        WorkItemSourceType,
         WorkingGroup,
         WorkingGroupMembership,
         WorkingGroupRole
@@ -829,6 +1325,44 @@ mod tests {
             .body(Body::from(request.to_string()))?)
     }
 
+    fn review_control_create_request() -> Value {
+        json!({
+            "schema_version": "review_control.work_item.v1",
+            "request": {
+                "source": {
+                    "source_type": "multica_issue",
+                    "source_ref": "issue_BOG_571"
+                },
+                "summary": "Implement review control contract."
+            },
+            "acceptance_criteria": [
+                {
+                    "id": "ac_create",
+                    "text": "Create and transitions are contract tested.",
+                    "required": true
+                }
+            ],
+            "risk_tier": "high",
+            "autonomy_level": "human_approval_required",
+            "audit": {
+                "correlation_id": "corr_BOG_571",
+                "request_id": "req_BOG_571"
+            }
+        })
+    }
+
+    fn json_http_request(
+        method: &str,
+        uri: &str,
+        body: Value,
+    ) -> Result<Request<Body>, Box<dyn std::error::Error>> {
+        Ok(Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))?)
+    }
+
     #[tokio::test]
     async fn exposes_generated_openapi_contract() -> Result<(), Box<dyn std::error::Error>> {
         let response = build_router(AppState::default())
@@ -847,15 +1381,44 @@ mod tests {
         assert!(document["paths"]["/v1/authorization/memberships"].is_null());
         assert!(document["paths"]["/v1/authorization/role-bindings"].is_null());
         assert!(document["paths"]["/v1/registry"].is_object());
+        assert!(
+            document["paths"]["/v1/protected-operations/approval-gate/fixture-evaluation"]
+                .is_object()
+        );
         assert!(document["paths"]["/v1/usage/evaluate"].is_object());
         assert!(document["paths"]["/v1/usage/events"].is_object());
         assert!(document["paths"]["/v1/remote/usage-reports"].is_object());
+        assert!(document["paths"]["/v1/review-time/evaluate"].is_null());
+        assert!(document["paths"]["/v1/review-control/work-items"].is_object());
+        assert!(document["paths"]["/v1/review-control/work-items/{work_item_id}"].is_object());
+        assert!(
+            document["paths"]["/v1/review-control/work-items/{work_item_id}/approve-plan"]
+                .is_object()
+        );
+        assert!(document["paths"]["/v1/review-control/work-items/{work_item_id}/done"].is_object());
+        assert!(
+            document["paths"]["/v1/review-control/work-items/{work_item_id}/rework"].is_object()
+        );
         assert!(document["paths"]["/v1/audit/events"].is_object());
         assert!(document["paths"]["/v1/operations/timeline/events"].is_object());
         assert!(document["paths"]["/v1/operations/audit/events"].is_object());
         assert!(document["paths"]["/v1/operations/health/events"].is_object());
+        assert!(document["paths"]["/v1/work-items/intake"].is_object());
         assert!(
             document["components"]["schemas"]["PolicyDecision"]["properties"]["allowed"]
+                .is_object()
+        );
+        assert!(
+            document["components"]["schemas"]["IntakeRequest"]["properties"]["mode"].is_object()
+        );
+        assert!(
+            document["components"]["schemas"]["ApprovalGateDecision"]["properties"]
+                ["side_effect_permitted"]
+                .is_object()
+        );
+        assert!(
+            document["components"]["schemas"]["ApprovalGateDecision"]["properties"]
+                ["trust_boundary"]
                 .is_object()
         );
         assert!(
@@ -866,11 +1429,366 @@ mod tests {
             document["components"]["schemas"]["RunTimelineEventV1"]["properties"]["stage"]
                 .is_object()
         );
+        assert!(
+            document["components"]["schemas"]["ReviewControlWorkItem"]["properties"]["state"]
+                .is_object()
+        );
         let error = &document["components"]["schemas"]["ErrorEnvelope"];
         assert!(error["properties"]["code"].is_object());
         assert!(error["properties"]["message_key"].is_object());
         assert!(error["properties"]["field_errors"].is_object());
         assert!(error["properties"]["support"].is_object());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn previews_manual_work_item_intake() -> Result<(), Box<dyn std::error::Error>> {
+        let working_group_id = Uuid::new_v4();
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/work-items/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "working_group_id": working_group_id,
+                            "mode": "preview",
+                            "input": {
+                                "source": "manual",
+                                "title": "  Review control request ",
+                                "body": "Create a deterministic preview.",
+                                "source_url": "https://example.test/requests/1",
+                                "acceptance_criteria": ["Preview returns normalized fields"],
+                                "risk_tier_hint": "medium"
+                            }
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let payload: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(payload["mode"], "preview");
+        assert_eq!(payload["input"]["title"], "Review control request");
+        assert_eq!(payload["input"]["source"], "manual");
+        assert!(payload["work_item"].is_null());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn creates_github_issue_shaped_work_item_intake() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../fixtures/intake.github-issue.json"))?;
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/work-items/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(fixture.to_string()))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let payload: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(payload["mode"], "create");
+        assert_eq!(payload["input"]["source"], "github_issue");
+        assert_eq!(payload["input"]["external_reference"], "example/repo#42");
+        assert!(payload["work_item"]["id"].is_string());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn intake_rejects_missing_acceptance_criteria() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/work-items/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "working_group_id": Uuid::new_v4(),
+                            "mode": "preview",
+                            "input": {
+                                "source": "manual",
+                                "title": "Missing criteria",
+                                "body": "Body",
+                                "acceptance_criteria": []
+                            }
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let payload: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(
+            payload["error"]["field_errors"][0]["field"],
+            "acceptance_criteria"
+        );
+        assert_eq!(payload["error"]["support"]["redacted"], true);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn intake_rejects_oversized_body() -> Result<(), Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/work-items/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "working_group_id": Uuid::new_v4(),
+                            "mode": "preview",
+                            "input": {
+                                "source": "manual",
+                                "title": "Oversized",
+                                "body": "a".repeat(16 * 1024 + 1),
+                                "acceptance_criteria": ["Safe"]
+                            }
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let payload: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(payload["error"]["field_errors"][0]["field"], "body");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn intake_rejects_unsupported_source_url() -> Result<(), Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/work-items/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "working_group_id": Uuid::new_v4(),
+                            "mode": "preview",
+                            "input": {
+                                "source": "manual",
+                                "title": "Bad source URL",
+                                "body": "Body",
+                                "source_url": "file:///tmp/private.txt",
+                                "acceptance_criteria": ["Safe"]
+                            }
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let payload: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(payload["error"]["field_errors"][0]["field"], "source_url");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn intake_rejects_secret_shaped_input() -> Result<(), Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/work-items/intake")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "working_group_id": Uuid::new_v4(),
+                            "mode": "preview",
+                            "input": {
+                                "source": "github_issue",
+                                "title": "Secret-shaped body",
+                                "body": "Authorization: Bearer example-token",
+                                "source_url": "https://github.com/example/repo/issues/7",
+                                "acceptance_criteria": ["Safe"],
+                                "repository": "example/repo",
+                                "issue_number": 7
+                            }
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let payload: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(payload["error"]["field_errors"][0]["field"], "body");
+        assert_eq!(payload["error"]["support"]["redacted"], true);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn intake_rejects_expanded_sensitive_markers_without_echoing_raw_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let cases = [
+            (
+                "title",
+                "client_secret fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "client_secret fixture-marker",
+                    "body": "Body",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["Safe"]
+                }),
+            ),
+            (
+                "body",
+                "password fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "Title",
+                    "body": "password fixture-marker",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["Safe"]
+                }),
+            ),
+            (
+                "acceptance_criteria",
+                "raw_log fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "Title",
+                    "body": "Body",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["raw_log fixture-marker"]
+                }),
+            ),
+            (
+                "body",
+                "cookie: fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "Title",
+                    "body": "cookie: fixture-marker",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["Safe"]
+                }),
+            ),
+            (
+                "body",
+                "token fixture-marker",
+                json!({
+                    "source": "manual",
+                    "title": "Title",
+                    "body": "token fixture-marker",
+                    "source_url": "https://example.test/request/1",
+                    "acceptance_criteria": ["Safe"]
+                }),
+            ),
+            (
+                "external_reference",
+                "raw_log/repo",
+                json!({
+                    "source": "github_issue",
+                    "title": "Title",
+                    "body": "Body",
+                    "source_url": "https://github.com/example/repo/issues/8",
+                    "acceptance_criteria": ["Safe"],
+                    "repository": "raw_log/repo",
+                    "issue_number": 8
+                }),
+            ),
+        ];
+
+        for (field, raw_value, input) in cases {
+            let response = build_router(AppState::default())
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/v1/work-items/intake")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(
+                            json!({
+                                "working_group_id": Uuid::new_v4(),
+                                "mode": "preview",
+                                "input": input
+                            })
+                            .to_string(),
+                        ))?,
+                )
+                .await?;
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let body = to_bytes(response.into_body(), usize::MAX).await?;
+            let payload: Value = serde_json::from_slice(&body)?;
+            let serialized = serde_json::to_string(&payload)?;
+
+            assert_eq!(payload["error"]["field_errors"][0]["field"], field);
+            assert_eq!(payload["error"]["support"]["redacted"], true);
+            assert!(!serialized.contains(raw_value));
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn intake_rejects_credential_shaped_source_urls_without_echoing_raw_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let cases = [
+            "https://user:password@example.test/request/1",
+            "https://example.test/request/1?client_secret=fixture-marker",
+            "https://example.test/request/1?secret=fixture-marker",
+        ];
+
+        for raw_url in cases {
+            let response = build_router(AppState::default())
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/v1/work-items/intake")
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .body(Body::from(
+                            json!({
+                                "working_group_id": Uuid::new_v4(),
+                                "mode": "preview",
+                                "input": {
+                                    "source": "manual",
+                                    "title": "Title",
+                                    "body": "Body",
+                                    "source_url": raw_url,
+                                    "acceptance_criteria": ["Safe"]
+                                }
+                            })
+                            .to_string(),
+                        ))?,
+                )
+                .await?;
+
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let body = to_bytes(response.into_body(), usize::MAX).await?;
+            let payload: Value = serde_json::from_slice(&body)?;
+            let serialized = serde_json::to_string(&payload)?;
+
+            assert_eq!(payload["error"]["field_errors"][0]["field"], "source_url");
+            assert_eq!(payload["error"]["support"]["redacted"], true);
+            assert!(!serialized.contains(raw_url));
+        }
         Ok(())
     }
 
@@ -1608,6 +2526,80 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn approval_gate_api_contract_stops_pending_protected_operation_before_side_effect()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let request = json!({
+            "actor": { "type": "user", "id": "user_requester" },
+            "delegated_actor": { "type": "agent", "id": "agent_executor" },
+            "action": "deployment",
+            "resource": { "type": "deployment", "id": "deploy_prod" },
+            "risk_summary": "Deploys a production service.",
+            "evaluated_at": "2026-06-01T00:00:00Z",
+            "approval_record": {
+                "id": "approval_01J9Z4P4BS0M9P2QJ6T8Z6W2EE",
+                "actor": { "type": "user", "id": "user_requester" },
+                "delegated_actor": { "type": "agent", "id": "agent_executor" },
+                "action": "deployment",
+                "resource": { "type": "deployment", "id": "deploy_prod" },
+                "risk_summary": "Deploys a production service.",
+                "expires_at": "2026-06-01T00:05:00Z",
+                "approver": { "type": "user", "id": "user_owner" },
+                "approver_eligibility": "eligible",
+                "decision": "pending"
+            }
+        });
+
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/protected-operations/approval-gate/fixture-evaluation")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request.to_string()))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(decision["allowed"], false);
+        assert_eq!(decision["status"], "waiting_approval");
+        assert_eq!(decision["reason_code"], "approval_pending");
+        assert_eq!(decision["side_effect_permitted"], false);
+        assert_eq!(decision["trust_boundary"]["fixture_only"], true);
+        assert_eq!(
+            decision["trust_boundary"]["client_supplied_record_trusted_for_execution"],
+            false
+        );
+        assert_eq!(
+            decision["trust_boundary"]["consumption_policy"],
+            "fixture_smoke_only_do_not_use_for_executor_enforcement"
+        );
+        assert_eq!(decision["actor"]["id"], "user_requester");
+        assert_eq!(decision["delegated_actor"]["id"], "agent_executor");
+        assert_eq!(decision["approval_record"]["action"], "deployment");
+        assert_eq!(
+            decision["approval_record"]["resource"],
+            json!({ "type": "deployment", "id": "deploy_prod" })
+        );
+        assert_eq!(
+            decision["approval_record"]["risk_summary"],
+            "Deploys a production service."
+        );
+        assert_eq!(
+            decision["approval_record"]["expires_at"],
+            "2026-06-01T00:05:00Z"
+        );
+        assert_eq!(
+            decision["approval_record"]["approver_eligibility"],
+            "eligible"
+        );
+        assert_eq!(decision["approval_record"]["decision"], "pending");
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn usage_api_preserves_and_semantics() -> Result<(), Box<dyn std::error::Error>> {
         let request = json!({
             "snapshot": {
@@ -1948,6 +2940,554 @@ mod tests {
 
         assert_eq!(report["schema_version"], "remote_usage_report.v1");
         assert_eq!(report["status"], "succeeded");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn review_time_api_evaluates_prototype_fixture() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/review-time/evaluate")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(include_str!(
+                        "../../../contracts/fixtures/review-time-telemetry.prototype.json"
+                    )))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let metrics: Value = serde_json::from_slice(&body)?;
+        assert_eq!(metrics["completed_agent_tasks"], 1);
+        assert_eq!(metrics["human_review_minutes"], 11);
+        assert_eq!(metrics["human_minutes_per_completed_agent_task"], 11);
+        assert_eq!(metrics["rework_loops"], 1);
+        assert_eq!(metrics["missing_stop_events"], 0);
+        assert_eq!(metrics["baseline"]["human_review_minutes"], 38);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn imports_fixture_result_into_review_packet_and_audit_timeline()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        let request: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/agent-result-import.manual.json"
+        ))?;
+
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/agent-result-imports")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request.to_string()))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let packet: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(packet["work_item_id"], request["work_item_id"]);
+        assert!(
+            packet["evidence_id"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("evidence_")
+        );
+        assert_eq!(packet["changed_files"].as_array().map(Vec::len), Some(2));
+        assert_eq!(packet["commands"][0]["outcome"], "passed");
+        assert_eq!(packet["redaction_summary"]["redacted"], false);
+        assert!(
+            packet["timeline_event_id"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("evt_")
+        );
+        assert!(Uuid::parse_str(packet["audit_event_id"].as_str().unwrap_or("")).is_ok());
+
+        let work_item_id = request["work_item_id"]
+            .as_str()
+            .ok_or("fixture work_item_id must be a string")?;
+        let review_packet_uri = format!("/v1/review-packets/{work_item_id}");
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(review_packet_uri)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let fetched: Value = serde_json::from_slice(&body)?;
+        assert_eq!(fetched["evidence_id"], packet["evidence_id"]);
+
+        let store = state.store.lock().map_err(|_| "store lock failed")?;
+        assert_eq!(store.imported_agent_result_evidence.len(), 1);
+        assert_eq!(store.review_packet_refs.len(), 1);
+        assert_eq!(store.run_timeline_events.len(), 1);
+        assert_eq!(
+            store.run_timeline_events[0].stage,
+            RunTimelineStage::Completed
+        );
+        assert_eq!(store.audit_events.len(), 1);
+        assert_eq!(store.audit_events[0].action, "agent_result.imported");
+        assert_eq!(
+            store.audit_events[0].id.0.to_string(),
+            packet["audit_event_id"]
+        );
+        drop(store);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn import_rejects_malformed_result_payload_without_leaking_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/agent-result-imports")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "schema_version": "agent_result_import.v1",
+                            "work_item_id": "018f30d5-9471-7c4c-85c4-0e14c3f76c10",
+                            "source_agent_run_ref": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2AR",
+                            "summary": "Fixture mentions secret_token_value",
+                            "raw_log": "secret_token_value"
+                        })
+                        .to_string(),
+                    ))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_json_rejection_is_redacted(
+            &envelope,
+            &["secret_token_value", "raw_log", "unknown field", "serde"],
+        )?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn import_redacts_sensitive_payload_before_storage_and_display()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        let mut request: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/agent-result-import.manual.json"
+        ))?;
+        request["summary"] = json!("Fixture accidentally included bearer token details.");
+        request["commands"][0]["summary"] = json!("raw_log output intentionally omitted.");
+
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/agent-result-imports")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(request.to_string()))?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let packet: Value = serde_json::from_slice(&body)?;
+        let serialized = serde_json::to_string(&packet)?;
+
+        assert_eq!(packet["summary"], "[redacted]");
+        assert_eq!(packet["commands"][0]["summary"], "[redacted]");
+        assert_eq!(packet["redaction_summary"]["redacted"], true);
+        assert!(!serialized.contains("bearer token"));
+        assert!(!serialized.contains("raw_log"));
+
+        let store = state.store.lock().map_err(|_| "store lock failed")?;
+        assert_eq!(
+            store.imported_agent_result_evidence[0].summary,
+            "[redacted]"
+        );
+        assert_eq!(
+            store.imported_agent_result_evidence[0].commands[0].summary,
+            "[redacted]"
+        );
+        drop(store);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn review_control_create_update_approve_done_transition()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        let app = build_router(state);
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                review_control_create_request(),
+            )?)
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let created: Value = serde_json::from_slice(&body)?;
+        let work_item_id = created["id"]
+            .as_str()
+            .ok_or("work item id should serialize as string")?;
+        assert_eq!(created["state"], "draft");
+        assert_eq!(created["plan_approval"]["state"], "pending");
+        assert_eq!(created["review_decision"]["state"], "pending");
+
+        let uri = format!("/v1/review-control/work-items/{work_item_id}");
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "PATCH",
+                &uri,
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "imported_result_refs": ["import_agent_result_1"],
+                    "evidence_refs": ["review_packet_1"],
+                    "audit_event_ref": "audit_update_1"
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let updated: Value = serde_json::from_slice(&body)?;
+        assert_eq!(updated["state"], "ready_for_review");
+        assert_eq!(updated["imported_result_refs"][0], "import_agent_result_1");
+
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                &format!("/v1/review-control/work-items/{work_item_id}/approve-plan"),
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "decision_ref": "plan_decision_1",
+                    "audit_event_ref": "audit_plan_1"
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let approved: Value = serde_json::from_slice(&body)?;
+        assert_eq!(approved["plan_approval"]["state"], "approved");
+
+        let response = app
+            .oneshot(json_http_request(
+                "POST",
+                &format!("/v1/review-control/work-items/{work_item_id}/done"),
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "decision_ref": "done_decision_1",
+                    "reason_code": "acceptance_criteria_met",
+                    "audit_event_ref": "audit_done_1"
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let done: Value = serde_json::from_slice(&body)?;
+        assert_eq!(done["state"], "done");
+        assert_eq!(done["review_decision"]["state"], "done");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn review_control_approve_rework_transition() -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        let app = build_router(state);
+        let mut create = review_control_create_request();
+        create["evidence_refs"] = json!(["review_packet_1"]);
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                create,
+            )?)
+            .await?;
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let created: Value = serde_json::from_slice(&body)?;
+        let work_item_id = created["id"]
+            .as_str()
+            .ok_or("work item id should serialize as string")?;
+
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                &format!("/v1/review-control/work-items/{work_item_id}/approve-plan"),
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "decision_ref": "plan_decision_1",
+                    "audit_event_ref": "audit_plan_1"
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .oneshot(json_http_request(
+                "POST",
+                &format!("/v1/review-control/work-items/{work_item_id}/rework"),
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "decision_ref": "rework_decision_1",
+                    "reason_code": "reviewer_requested_rework",
+                    "audit_event_ref": "audit_rework_1"
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let rework: Value = serde_json::from_slice(&body)?;
+        assert_eq!(rework["state"], "rework");
+        assert_eq!(rework["review_decision"]["state"], "rework");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn review_control_invalid_transition_returns_stable_conflict()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let app = build_router(AppState::default());
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                review_control_create_request(),
+            )?)
+            .await?;
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let created: Value = serde_json::from_slice(&body)?;
+        let work_item_id = created["id"]
+            .as_str()
+            .ok_or("work item id should serialize as string")?;
+
+        let response = app
+            .oneshot(json_http_request(
+                "POST",
+                &format!("/v1/review-control/work-items/{work_item_id}/done"),
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "decision_ref": "done_decision_1",
+                    "reason_code": "acceptance_criteria_met",
+                    "audit_event_ref": "audit_done_1"
+                }),
+            )?)
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_eq!(envelope["error"]["code"], "conflict");
+        assert_eq!(envelope["error"]["message_key"], "errors.conflict");
+        assert_eq!(envelope["error"]["support"]["redacted"], true);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn review_control_contract_redacts_and_rejects_secret_shaped_values()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let app = build_router(AppState::default());
+        let mut request = review_control_create_request();
+        request["request"]["summary"] = json!("Summary accidentally includes bearer token.");
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                request,
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let created: Value = serde_json::from_slice(&body)?;
+        let serialized = serde_json::to_string(&created)?;
+        assert_eq!(created["request"]["summary"], "[redacted]");
+        assert_eq!(created["redaction_summary"]["redacted"], true);
+        assert!(!serialized.contains("bearer token"));
+
+        let mut unsafe_request = review_control_create_request();
+        unsafe_request["evidence_refs"] = json!(["raw_log_token_unsafe"]);
+        let response = app
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                unsafe_request,
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        let serialized = serde_json::to_string(&envelope)?;
+        assert_eq!(envelope["error"]["code"], "validation_failed");
+        assert!(!serialized.contains("raw_log_token_unsafe"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn review_control_api_enforces_approval_required_invariant()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let app = build_router(AppState::default());
+        let mut high_risk = review_control_create_request();
+        high_risk["autonomy_level"] = json!("agent_can_prepare");
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                high_risk,
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_eq!(envelope["error"]["code"], "validation_failed");
+        assert_eq!(envelope["error"]["support"]["redacted"], true);
+
+        let mut allowed = review_control_create_request();
+        allowed["risk_tier"] = json!("medium");
+        allowed["autonomy_level"] = json!("agent_can_prepare");
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                allowed,
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let created: Value = serde_json::from_slice(&body)?;
+        let work_item_id = created["id"]
+            .as_str()
+            .ok_or("work item id should serialize as string")?;
+        assert_eq!(created["autonomy_level"], "agent_can_prepare");
+        assert_eq!(created["request"]["protected_operation"], false);
+
+        let response = app
+            .oneshot(json_http_request(
+                "PATCH",
+                &format!("/v1/review-control/work-items/{work_item_id}"),
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "protected_operation": true
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_eq!(envelope["error"]["code"], "validation_failed");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn failed_review_control_patch_does_not_partially_commit_fields()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let app = build_router(AppState::default());
+        let mut create = review_control_create_request();
+        create["request"]["protected_operation"] = json!(true);
+        create["imported_result_refs"] = json!(["import_original"]);
+        create["evidence_refs"] = json!(["evidence_original"]);
+        create["audit"]["audit_event_ref"] = json!("audit_original");
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "POST",
+                "/v1/review-control/work-items",
+                create,
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let created: Value = serde_json::from_slice(&body)?;
+        let work_item_id = created["id"]
+            .as_str()
+            .ok_or("work item id should serialize as string")?;
+
+        let response = app
+            .clone()
+            .oneshot(json_http_request(
+                "PATCH",
+                &format!("/v1/review-control/work-items/{work_item_id}"),
+                json!({
+                    "schema_version": "review_control.work_item.v1",
+                    "request_summary": "Summary accidentally included bearer token.",
+                    "protected_operation": false,
+                    "risk_tier": "low",
+                    "autonomy_level": "suggest_only",
+                    "imported_result_refs": ["import_new"],
+                    "evidence_refs": ["evidence_new"],
+                    "audit_event_ref": "audit_access_token_unsafe"
+                }),
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_eq!(envelope["error"]["code"], "validation_failed");
+        assert_eq!(envelope["error"]["support"]["redacted"], true);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/v1/review-control/work-items/{work_item_id}"))
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let fetched: Value = serde_json::from_slice(&body)?;
+        assert_eq!(fetched["risk_tier"], "high");
+        assert_eq!(fetched["autonomy_level"], "human_approval_required");
+        assert_eq!(fetched["request"]["protected_operation"], true);
+        assert_eq!(
+            fetched["request"]["summary"],
+            "Implement review control contract."
+        );
+        assert_eq!(fetched["imported_result_refs"][0], "import_original");
+        assert_eq!(fetched["evidence_refs"][0], "evidence_original");
+        assert_eq!(fetched["audit"]["audit_event_ref"], "audit_original");
+        assert_eq!(fetched["redaction_summary"]["redacted"], false);
+        assert_eq!(
+            fetched["redaction_summary"]["redacted_fields"]
+                .as_array()
+                .map(Vec::len),
+            Some(0)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn review_packet_returns_not_found_without_imported_evidence()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let response = build_router(AppState::default())
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/v1/review-packets/018f30d5-9471-7c4c-85c4-0e14c3f76c10")
+                    .body(Body::empty())?,
+            )
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let envelope: Value = serde_json::from_slice(&body)?;
+        assert_eq!(envelope["error"]["code"], "not_found");
+        assert_eq!(envelope["error"]["support"]["redacted"], true);
         Ok(())
     }
 }

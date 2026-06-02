@@ -20,6 +20,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type {
   ConsoleData,
   FirstRunDenialReasonCode,
@@ -27,6 +28,9 @@ import type {
   FirstRunTimelineItem,
   IssueStatus,
   IssueSummary,
+  ReviewControlData,
+  ReviewDecisionKind,
+  ReviewSignalState,
   RunStatus,
   Severity,
   SetupStep,
@@ -131,6 +135,12 @@ function policyLabel(i18n: I18n, policyState: IssueSummary["policyState"]) {
 }
 
 function AppShell({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
+  const [planDecision, setPlanDecision] = useState(
+    null as ReviewDecisionKind | null,
+  );
+  const [finalDecision, setFinalDecision] = useState(
+    null as ReviewDecisionKind | null,
+  );
   const groupedIssues = useMemo(
     () =>
       data.issues.reduce<Record<IssueSummary["group"], IssueSummary[]>>(
@@ -269,6 +279,15 @@ function AppShell({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
           </button>
         </section>
 
+        <ReviewControlSurface
+          data={data.reviewControl}
+          finalDecision={finalDecision}
+          i18n={i18n}
+          planDecision={planDecision}
+          onFinalDecision={setFinalDecision}
+          onPlanDecision={setPlanDecision}
+        />
+
         <section
           className="issue-surface"
           aria-label={i18n.t("issues.list.label")}
@@ -298,6 +317,288 @@ function AppShell({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
         <IssueDetail data={data} i18n={i18n} />
       </aside>
     </div>
+  );
+}
+
+function reviewSignalSeverity(state: ReviewSignalState): Severity {
+  switch (state) {
+    case "ready":
+      return "success";
+    case "loading":
+      return "info";
+    case "empty":
+      return "neutral";
+    case "error":
+    case "missing":
+      return "warning";
+    case "high_risk":
+      return "danger";
+  }
+}
+
+function planStatusSeverity(
+  status: ReviewControlData["planSteps"][number]["status"],
+): Severity {
+  switch (status) {
+    case "ready":
+      return "success";
+    case "needs_attention":
+      return "warning";
+    case "blocked":
+      return "danger";
+  }
+}
+
+function ReviewControlSurface({
+  data,
+  finalDecision,
+  i18n,
+  onFinalDecision,
+  onPlanDecision,
+  planDecision,
+}: {
+  data: ReviewControlData;
+  finalDecision: ReviewDecisionKind | null;
+  i18n: I18n;
+  onFinalDecision: (decision: ReviewDecisionKind) => void;
+  onPlanDecision: (decision: ReviewDecisionKind) => void;
+  planDecision: ReviewDecisionKind | null;
+}) {
+  const planStateKey = planDecision
+    ? (`issues.review.plan.state.${planDecision}` as TranslationKey)
+    : "issues.review.plan.state.pending";
+  const finalStateKey = finalDecision
+    ? (`issues.review.decision.state.${finalDecision}` as TranslationKey)
+    : "issues.review.decision.state.pending";
+
+  return (
+    <section className="review-control" aria-labelledby="review-control-title">
+      <header className="review-header">
+        <div>
+          <p className="eyebrow">{i18n.t("issues.review.eyebrow")}</p>
+          <h2 id="review-control-title">{i18n.t("issues.review.title")}</h2>
+        </div>
+        <div className="review-header-meta">
+          <StatusBadge
+            i18n={i18n}
+            status={data.riskTier === "high" ? "danger" : "warning"}
+            label={`${i18n.t("issues.review.riskTier")}: ${data.riskTier}`}
+          />
+          <StatusBadge i18n={i18n} status="info" label={data.autonomyLevel} />
+        </div>
+      </header>
+
+      <div className="review-grid">
+        <section
+          className="review-card request-card"
+          aria-labelledby="request-title"
+        >
+          <div className="review-card-heading">
+            <GitBranch size={18} aria-hidden="true" />
+            <h3 id="request-title">
+              {data.request.key} {data.request.title}
+            </h3>
+          </div>
+          <p>{data.request.summary}</p>
+          <dl className="review-metadata">
+            <div>
+              <dt>{i18n.t("issues.review.requestSource")}</dt>
+              <dd>{data.request.source}</dd>
+            </div>
+            <div>
+              <dt>{i18n.t("issues.review.autonomy")}</dt>
+              <dd>{data.autonomyLevel}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section className="review-card" aria-labelledby="plan-title">
+          <div className="review-card-heading">
+            <Clock3 size={18} aria-hidden="true" />
+            <h3 id="plan-title">{i18n.t("issues.review.plan.title")}</h3>
+          </div>
+          <ol className="plan-list">
+            {data.planSteps.map((step) => (
+              <li key={step.id}>
+                <span
+                  className={`plan-marker plan-${step.status}`}
+                  aria-hidden="true"
+                />
+                <div>
+                  <strong>{step.title}</strong>
+                  <p>{step.detail}</p>
+                  <StatusBadge
+                    i18n={i18n}
+                    status={planStatusSeverity(step.status)}
+                    label={step.status.replace("_", " ")}
+                  />
+                </div>
+              </li>
+            ))}
+          </ol>
+          <div className="decision-row" aria-live="polite">
+            <StatusBadge
+              i18n={i18n}
+              status="neutral"
+              label={i18n.t(planStateKey)}
+            />
+            <button type="button" onClick={() => onPlanDecision("approve")}>
+              <CheckCircle2 size={16} aria-hidden="true" />
+              {i18n.t("issues.review.plan.approve")}
+            </button>
+            <button
+              type="button"
+              onClick={() => onPlanDecision("request_changes")}
+            >
+              <AlertTriangle size={16} aria-hidden="true" />
+              {i18n.t("issues.review.plan.requestChanges")}
+            </button>
+          </div>
+        </section>
+
+        <section
+          className="review-card packet-card"
+          aria-labelledby="packet-title"
+        >
+          <div className="review-card-heading">
+            <ShieldCheck size={18} aria-hidden="true" />
+            <h3 id="packet-title">{i18n.t("issues.review.packet.title")}</h3>
+          </div>
+          <div className="packet-columns">
+            <ReviewPacketSection
+              i18n={i18n}
+              title={i18n.t("issues.review.packet.changedFiles")}
+            >
+              {data.evidence.map((item) => (
+                <article className="evidence-item" key={item.id}>
+                  <div>
+                    <strong>{item.label}</strong>
+                    <p>{item.detail}</p>
+                  </div>
+                  <StatusBadge
+                    i18n={i18n}
+                    status={reviewSignalSeverity(item.state)}
+                    label={i18n.t(
+                      `issues.review.signal.${item.state}` as TranslationKey,
+                    )}
+                  />
+                </article>
+              ))}
+            </ReviewPacketSection>
+
+            <ReviewPacketSection
+              i18n={i18n}
+              title={i18n.t("issues.review.packet.checklist")}
+            >
+              <ul className="packet-list">
+                {data.reviewChecklist.map((item) => (
+                  <li key={item}>
+                    <CheckCircle2 size={15} aria-hidden="true" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </ReviewPacketSection>
+
+            <ReviewPacketSection
+              i18n={i18n}
+              title={i18n.t("issues.review.packet.signals")}
+            >
+              <div className="signal-list">
+                {data.signals.map((signal) => (
+                  <article className="signal-item" key={signal.id}>
+                    <StatusBadge
+                      i18n={i18n}
+                      status={reviewSignalSeverity(signal.state)}
+                      label={i18n.t(
+                        `issues.review.signal.${signal.state}` as TranslationKey,
+                      )}
+                    />
+                    <strong>{signal.label}</strong>
+                    <p>{signal.detail}</p>
+                  </article>
+                ))}
+              </div>
+            </ReviewPacketSection>
+
+            <ReviewPacketSection
+              i18n={i18n}
+              title={i18n.t("issues.review.packet.rollback")}
+            >
+              <p>{data.rollbackGuidance}</p>
+            </ReviewPacketSection>
+
+            <ReviewPacketSection
+              i18n={i18n}
+              title={i18n.t("issues.review.packet.audit")}
+            >
+              <ol className="audit-list">
+                {data.auditEvents.map((event) => (
+                  <li key={event}>{event}</li>
+                ))}
+              </ol>
+            </ReviewPacketSection>
+          </div>
+        </section>
+
+        <section
+          className="review-card decision-card"
+          aria-labelledby="decision-title"
+        >
+          <div className="review-card-heading">
+            {finalDecision === "rework" ? (
+              <XCircle size={18} aria-hidden="true" />
+            ) : (
+              <CheckCircle2 size={18} aria-hidden="true" />
+            )}
+            <h3 id="decision-title">
+              {i18n.t("issues.review.decision.title")}
+            </h3>
+          </div>
+          <div className="decision-row" aria-live="polite">
+            <StatusBadge
+              i18n={i18n}
+              status={
+                finalDecision === "done"
+                  ? "success"
+                  : finalDecision === "rework"
+                    ? "warning"
+                    : "neutral"
+              }
+              label={i18n.t(finalStateKey)}
+            />
+            <button
+              type="button"
+              className="primary-action"
+              onClick={() => onFinalDecision("done")}
+            >
+              <CheckCircle2 size={16} aria-hidden="true" />
+              {i18n.t("issues.review.decision.done")}
+            </button>
+            <button type="button" onClick={() => onFinalDecision("rework")}>
+              <AlertTriangle size={16} aria-hidden="true" />
+              {i18n.t("issues.review.decision.rework")}
+            </button>
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function ReviewPacketSection({
+  children,
+  title,
+}: {
+  children: ReactNode;
+  i18n: I18n;
+  title: string;
+}) {
+  return (
+    <section className="packet-section">
+      <h4>{title}</h4>
+      {children}
+    </section>
   );
 }
 
