@@ -202,14 +202,21 @@ fn role_allows(role: &WorkingGroupRole, action: &str) -> bool {
             matches!(
                 action,
                 "issue.read"
+                    | "issue.list"
                     | "issue.create"
                     | "issue.update"
+                    | "issue.preview"
                     | "comment.read"
                     | "comment.create"
                     | "agent.run.delegate"
             )
         }
-        WorkingGroupRole::Viewer => matches!(action, "issue.read" | "comment.read"),
+        WorkingGroupRole::Viewer => {
+            matches!(
+                action,
+                "issue.read" | "issue.list" | "issue.preview" | "comment.read"
+            )
+        }
     }
 }
 
@@ -243,15 +250,24 @@ fn is_protected_action(action: &str, _resource_type: &str) -> bool {
             | "integration.invoke"
             | "provider.invoke"
             | "gateway.mcp.session.open"
+            | "issue.delete"
+            | "issue.export"
+            | "issue.attachment.read"
+            | "issue.artifact.read"
     )
 }
 
 fn requires_resource_scope(resource_type: &str) -> bool {
     matches!(
         resource_type,
-        "issue"
+        "issue_collection"
+            | "issue"
+            | "issue_preview"
+            | "issue_export"
             | "comment"
             | "agent"
+            | "attachment"
+            | "artifact"
             | "integration"
             | "provider"
             | "runner"
@@ -263,6 +279,20 @@ fn requires_resource_scope(resource_type: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const WG_ALPHA: &str = "wg_fake_alpha";
+    const WG_BRAVO: &str = "wg_fake_bravo";
+    const OVERLAPPING_USER: &str = "usr_fake_overlap";
+    const ALPHA_ISSUE: &str = "iss_fake_alpha_backlog";
+    const BRAVO_ISSUE: &str = "iss_fake_bravo_private";
+    const SHARED_ARTIFACT: &str = "art_fake_shared_name_only";
+
+    #[derive(Debug, Clone, Copy)]
+    struct AuthzFixtureCase {
+        action: &'static str,
+        resource_type: &'static str,
+        resource_id: &'static str,
+    }
 
     fn user(id: &str) -> PolicyActorRef {
         PolicyActorRef {
@@ -306,5 +336,170 @@ mod tests {
 
         assert!(!decision.allowed);
         assert_eq!(decision.reason_code, "cross_working_group_denied");
+    }
+
+    fn isolated_working_group_fixture() -> AuthorizationContext {
+        AuthorizationContext {
+            memberships: vec![
+                WorkingGroupMembership {
+                    working_group_id: WG_ALPHA.to_owned(),
+                    actor: user(OVERLAPPING_USER),
+                    role: WorkingGroupRole::Owner,
+                },
+                WorkingGroupMembership {
+                    working_group_id: WG_BRAVO.to_owned(),
+                    actor: user(OVERLAPPING_USER),
+                    role: WorkingGroupRole::Viewer,
+                },
+                WorkingGroupMembership {
+                    working_group_id: WG_BRAVO.to_owned(),
+                    actor: user("usr_fake_bravo_admin"),
+                    role: WorkingGroupRole::Admin,
+                },
+            ],
+            role_bindings: vec![RoleBinding {
+                working_group_id: WG_ALPHA.to_owned(),
+                actor: user(OVERLAPPING_USER),
+                resource_type: Some("artifact".to_owned()),
+                resource_id: Some(SHARED_ARTIFACT.to_owned()),
+                actions: vec!["issue.artifact.read".to_owned()],
+            }],
+            ..AuthorizationContext::default()
+        }
+    }
+
+    fn protected_resource(
+        resource_type: &str,
+        resource_id: &str,
+        working_group_id: &str,
+    ) -> PolicyResourceRef {
+        PolicyResourceRef {
+            r#type: resource_type.to_owned(),
+            id: resource_id.to_owned(),
+            working_group_id: Some(working_group_id.to_owned()),
+        }
+    }
+
+    fn fixture_cases() -> [AuthzFixtureCase; 8] {
+        [
+            AuthzFixtureCase {
+                action: "issue.list",
+                resource_type: "issue_collection",
+                resource_id: "issues_fake_bravo",
+            },
+            AuthzFixtureCase {
+                action: "issue.read",
+                resource_type: "issue",
+                resource_id: BRAVO_ISSUE,
+            },
+            AuthzFixtureCase {
+                action: "issue.update",
+                resource_type: "issue",
+                resource_id: BRAVO_ISSUE,
+            },
+            AuthzFixtureCase {
+                action: "issue.delete",
+                resource_type: "issue",
+                resource_id: BRAVO_ISSUE,
+            },
+            AuthzFixtureCase {
+                action: "issue.preview",
+                resource_type: "issue_preview",
+                resource_id: "preview_fake_bravo",
+            },
+            AuthzFixtureCase {
+                action: "issue.export",
+                resource_type: "issue_export",
+                resource_id: "export_fake_bravo",
+            },
+            AuthzFixtureCase {
+                action: "issue.attachment.read",
+                resource_type: "attachment",
+                resource_id: "att_fake_bravo_private",
+            },
+            AuthzFixtureCase {
+                action: "issue.artifact.read",
+                resource_type: "artifact",
+                resource_id: SHARED_ARTIFACT,
+            },
+        ]
+    }
+
+    #[test]
+    fn fake_isolated_working_group_fixture_denies_cross_scope_access_surfaces() {
+        let authorizer = RbacAuthorizer;
+        let context = isolated_working_group_fixture();
+        let actor = user(OVERLAPPING_USER);
+
+        for case in fixture_cases() {
+            let resource = protected_resource(case.resource_type, case.resource_id, WG_BRAVO);
+            let decision = authorizer.authorize(
+                &AuthorizationRequest {
+                    working_group_id: WG_ALPHA,
+                    actor: &actor,
+                    action: case.action,
+                    resource: &resource,
+                    requires_delegated_authority: false,
+                    delegated_authority: None,
+                },
+                &context,
+            );
+
+            assert!(
+                !decision.allowed,
+                "{} unexpectedly crossed Working Group scope",
+                case.action
+            );
+            assert_eq!(decision.reason_code, "cross_working_group_denied");
+            assert_eq!(decision.role, None);
+        }
+    }
+
+    #[test]
+    fn shared_resource_name_is_not_exposed_without_cross_working_group_policy() {
+        let authorizer = RbacAuthorizer;
+        let context = isolated_working_group_fixture();
+        let actor = user(OVERLAPPING_USER);
+        let resource = protected_resource("artifact", SHARED_ARTIFACT, WG_BRAVO);
+
+        let decision = authorizer.authorize(
+            &AuthorizationRequest {
+                working_group_id: WG_ALPHA,
+                actor: &actor,
+                action: "issue.artifact.read",
+                resource: &resource,
+                requires_delegated_authority: false,
+                delegated_authority: None,
+            },
+            &context,
+        );
+
+        assert!(!decision.allowed);
+        assert_eq!(decision.reason_code, "cross_working_group_denied");
+        assert_eq!(decision.role, None);
+    }
+
+    #[test]
+    fn fake_fixture_owner_can_access_same_working_group_resource() {
+        let authorizer = RbacAuthorizer;
+        let context = isolated_working_group_fixture();
+        let actor = user(OVERLAPPING_USER);
+        let resource = protected_resource("issue", ALPHA_ISSUE, WG_ALPHA);
+
+        let decision = authorizer.authorize(
+            &AuthorizationRequest {
+                working_group_id: WG_ALPHA,
+                actor: &actor,
+                action: "issue.update",
+                resource: &resource,
+                requires_delegated_authority: false,
+                delegated_authority: None,
+            },
+            &context,
+        );
+
+        assert!(decision.allowed);
+        assert_eq!(decision.reason_code, "role_matched");
+        assert_eq!(decision.role, Some(WorkingGroupRole::Owner));
     }
 }
