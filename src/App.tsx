@@ -19,10 +19,13 @@ import {
   Workflow,
   XCircle,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type {
   ConsoleData,
+  FirstRunDenialReasonCode,
+  FirstRunOnboarding,
+  FirstRunTimelineItem,
   IssueStatus,
   IssueSummary,
   ReviewControlData,
@@ -37,6 +40,7 @@ import { createI18n, resolveLocalePreferences } from "./i18n";
 import type { TranslationKey } from "./i18n/types";
 
 type I18n = ReturnType<typeof createI18n>;
+type PermissionMode = FirstRunOnboarding["permissions"]["role"];
 
 const navItems = [
   { key: "inbox", labelKey: "webShell.nav.inbox", icon: Inbox, count: 8 },
@@ -248,6 +252,11 @@ function AppShell({ data, i18n }: { data: ConsoleData; i18n: I18n }) {
             ))}
           </ol>
         </section>
+
+        <FirstRunOnboardingPanel
+          onboarding={data.firstRunOnboarding}
+          i18n={i18n}
+        />
 
         <section
           className="toolbar"
@@ -610,6 +619,408 @@ function SetupStepItem({ step }: { step: SetupStep }) {
         <strong>{step.title}</strong>
         <small>{step.detail}</small>
       </span>
+    </li>
+  );
+}
+
+function denialLabel(i18n: I18n, code?: FirstRunDenialReasonCode) {
+  return code
+    ? i18n.t(`commonErrors.policy.${code}` as TranslationKey)
+    : i18n.t("commonErrors.policy.allowed");
+}
+
+function FirstRunOnboardingPanel({
+  onboarding,
+  i18n,
+}: {
+  onboarding: FirstRunOnboarding;
+  i18n: I18n;
+}) {
+  const [providerRoute, setProviderRoute] = useState(
+    onboarding.providerRoute.providerName,
+  );
+  const [statusMessage, setStatusMessage] = useState(
+    i18n.t("issues.firstRun.status.ready"),
+  );
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [didRunDiagnostic, setDidRunDiagnostic] = useState(false);
+  const [permissionMode, setPermissionMode] = useState(
+    onboarding.permissions.role as PermissionMode,
+  );
+  const [shouldFocusErrorSummary, setShouldFocusErrorSummary] = useState(false);
+  const errorSummaryRef = useRef(null as HTMLDivElement | null);
+  const providerFieldId = "first-run-provider-route";
+  const providerErrorId = "first-run-provider-error";
+  const errorSummaryId = "first-run-error-summary";
+  const activePermissions =
+    permissionMode === "member"
+      ? onboarding.permissionFixtures.member
+      : onboarding.permissions;
+  const steps = [
+    "wg",
+    "provider",
+    "limits",
+    "runner",
+    "binding",
+    "diagnostic",
+  ] as const;
+
+  const validateProviderRoute = () => {
+    if (providerRoute.trim()) {
+      setFieldError(null);
+      return true;
+    }
+
+    setFieldError(i18n.t("issues.firstRun.errors.providerRequired"));
+    setShouldFocusErrorSummary(true);
+    return false;
+  };
+
+  useEffect(() => {
+    if (!shouldFocusErrorSummary || !fieldError) return;
+
+    errorSummaryRef.current?.focus();
+    setShouldFocusErrorSummary(false);
+  }, [fieldError, shouldFocusErrorSummary]);
+
+  const saveReadiness = () => {
+    if (!validateProviderRoute()) return;
+
+    setStatusMessage(i18n.t("issues.firstRun.status.saving"));
+    window.setTimeout(() => {
+      setStatusMessage(i18n.t("issues.firstRun.status.saved"));
+    }, 0);
+  };
+
+  const runDiagnostic = () => {
+    if (!validateProviderRoute()) return;
+
+    setStatusMessage(i18n.t("issues.firstRun.status.running"));
+    setDidRunDiagnostic(true);
+    window.setTimeout(() => {
+      setStatusMessage(i18n.t("issues.firstRun.status.complete"));
+    }, 0);
+  };
+
+  return (
+    <section className="first-run-panel" aria-labelledby="first-run-title">
+      <div className="first-run-heading">
+        <div>
+          <p className="eyebrow">{i18n.t("issues.firstRun.eyebrow")}</p>
+          <h2 id="first-run-title">{i18n.t("issues.firstRun.title")}</h2>
+          <p>{i18n.t("issues.firstRun.summary")}</p>
+        </div>
+        <StatusBadge
+          i18n={i18n}
+          status={
+            onboarding.diagnosticContract.blockedReasonCode
+              ? "warning"
+              : "success"
+          }
+          label={denialLabel(
+            i18n,
+            onboarding.diagnosticContract.blockedReasonCode,
+          )}
+        />
+      </div>
+
+      <ol
+        className="first-run-stepper"
+        aria-label={i18n.t("issues.firstRun.steps.label")}
+      >
+        {steps.map((step, index) => (
+          <li
+            key={step}
+            aria-current={step === "diagnostic" ? "step" : undefined}
+          >
+            <span aria-hidden="true">{index + 1}</span>
+            <strong>
+              {i18n.t(`issues.firstRun.step.${step}` as TranslationKey)}
+            </strong>
+            {step === "diagnostic" ? (
+              <small>{i18n.t("issues.firstRun.currentStep")}</small>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+
+      {fieldError ? (
+        <div
+          className="error-summary"
+          id={errorSummaryId}
+          ref={errorSummaryRef}
+          tabIndex={-1}
+          role="alert"
+        >
+          <strong>{i18n.t("issues.firstRun.errors.title")}</strong>
+          <a href={`#${providerFieldId}`}>{fieldError}</a>
+        </div>
+      ) : null}
+
+      <div className="first-run-grid">
+        <section aria-labelledby="first-run-provider-title">
+          <h3 id="first-run-provider-title">
+            {i18n.t("issues.firstRun.provider.title")}
+          </h3>
+          <label className="field-stack" htmlFor={providerFieldId}>
+            <span>{i18n.t("issues.firstRun.provider.name")}</span>
+            <input
+              aria-describedby={fieldError ? providerErrorId : undefined}
+              aria-invalid={fieldError ? "true" : undefined}
+              id={providerFieldId}
+              value={providerRoute}
+              onChange={(event) => setProviderRoute(event.target.value)}
+            />
+          </label>
+          {fieldError ? (
+            <p className="field-error" id={providerErrorId}>
+              {fieldError}
+            </p>
+          ) : null}
+          <dl className="compact-facts">
+            <div>
+              <dt>{i18n.t("issues.firstRun.provider.model")}</dt>
+              <dd>{onboarding.providerRoute.modelName}</dd>
+            </div>
+            <div>
+              <dt>{i18n.t("issues.firstRun.provider.credential")}</dt>
+              <dd>
+                {onboarding.providerRoute.credentialRef} ·{" "}
+                {i18n.t(
+                  `issues.firstRun.credential.${onboarding.providerRoute.credentialStatus}` as TranslationKey,
+                )}
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <section aria-labelledby="first-run-limits-title">
+          <h3 id="first-run-limits-title">
+            {i18n.t("issues.firstRun.limits.title")}
+          </h3>
+          <dl className="compact-facts">
+            <div>
+              <dt>{i18n.t("issues.firstRun.limits.monthly")}</dt>
+              <dd>{onboarding.costUsageDefaults.monthlyLimitMicros}</dd>
+            </div>
+            <div>
+              <dt>{i18n.t("issues.firstRun.limits.perRun")}</dt>
+              <dd>{onboarding.costUsageDefaults.perRunLimitMicros}</dd>
+            </div>
+            <div>
+              <dt>{i18n.t("issues.firstRun.limits.delta")}</dt>
+              <dd>{onboarding.costUsageDefaults.usageDeltaMicros}</dd>
+            </div>
+            <div>
+              <dt>{i18n.t("issues.firstRun.limits.billable")}</dt>
+              <dd>{String(onboarding.costUsageDefaults.billable)}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section aria-labelledby="first-run-runner-title">
+          <h3 id="first-run-runner-title">
+            {i18n.t("issues.firstRun.runner.title")}
+          </h3>
+          <dl className="compact-facts">
+            <div>
+              <dt>{i18n.t("issues.firstRun.runner.runnerState")}</dt>
+              <dd>{onboarding.runnerAvailability.runnerState}</dd>
+            </div>
+            <div>
+              <dt>{i18n.t("issues.firstRun.runner.mcpState")}</dt>
+              <dd>{onboarding.runnerAvailability.mcpState}</dd>
+            </div>
+            <div>
+              <dt>{i18n.t("issues.firstRun.contract.blockedReason")}</dt>
+              <dd>
+                {denialLabel(
+                  i18n,
+                  onboarding.runnerAvailability.blockedReasonCode,
+                )}
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <section aria-labelledby="first-run-binding-title">
+          <h3 id="first-run-binding-title">
+            {i18n.t("issues.firstRun.binding.title")}
+          </h3>
+          <dl className="compact-facts">
+            <div>
+              <dt>{i18n.t("issues.firstRun.binding.agent")}</dt>
+              <dd>{onboarding.binding.agentName}</dd>
+            </div>
+            <div>
+              <dt>{i18n.t("issues.firstRun.binding.skill")}</dt>
+              <dd>{onboarding.binding.skillName}</dd>
+            </div>
+          </dl>
+        </section>
+      </div>
+
+      <section
+        className="first-run-contract"
+        aria-labelledby="first-run-contract-title"
+      >
+        <h3 id="first-run-contract-title">
+          {i18n.t("issues.firstRun.contract.title")}
+        </h3>
+        <dl className="contract-grid">
+          <div>
+            <dt>{i18n.t("issues.firstRun.contract.mode")}</dt>
+            <dd>{onboarding.diagnosticContract.mode}</dd>
+          </div>
+          <div>
+            <dt>{i18n.t("issues.firstRun.contract.allowPaidCall")}</dt>
+            <dd>{String(onboarding.diagnosticContract.allowPaidCall)}</dd>
+          </div>
+          <div>
+            <dt>{i18n.t("issues.firstRun.contract.idempotencyKey")}</dt>
+            <dd>{onboarding.diagnosticContract.idempotencyKey}</dd>
+          </div>
+          <div>
+            <dt>{i18n.t("issues.firstRun.contract.billable")}</dt>
+            <dd>{String(onboarding.diagnosticContract.billable)}</dd>
+          </div>
+          <div>
+            <dt>{i18n.t("issues.firstRun.limits.delta")}</dt>
+            <dd>{onboarding.diagnosticContract.usageDeltaMicros}</dd>
+          </div>
+          <div>
+            <dt>{i18n.t("issues.firstRun.contract.policyDecisionId")}</dt>
+            <dd>{onboarding.diagnosticContract.policyDecisionId}</dd>
+          </div>
+          <div>
+            <dt>{i18n.t("issues.firstRun.contract.denialReason")}</dt>
+            <dd>
+              {denialLabel(
+                i18n,
+                onboarding.diagnosticContract.denialReasonCode,
+              )}
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section
+        className="first-run-permissions"
+        aria-labelledby="first-run-permissions-title"
+      >
+        <h3 id="first-run-permissions-title">
+          {i18n.t("issues.firstRun.permissions.title")}
+        </h3>
+        <div
+          className="permission-toggle"
+          role="group"
+          aria-label={i18n.t("issues.firstRun.permissions.fixtureLabel")}
+        >
+          <button
+            aria-pressed={permissionMode === "admin"}
+            type="button"
+            onClick={() => setPermissionMode("admin")}
+          >
+            {i18n.t("issues.firstRun.permissions.adminFixture")}
+          </button>
+          <button
+            aria-pressed={permissionMode === "member"}
+            type="button"
+            onClick={() => setPermissionMode("member")}
+          >
+            {i18n.t("issues.firstRun.permissions.memberFixture")}
+          </button>
+        </div>
+        <StatusBadge
+          i18n={i18n}
+          status={activePermissions.canConfigure ? "success" : "warning"}
+          label={i18n.t("issues.firstRun.permissions.configure")}
+        />
+        <StatusBadge
+          i18n={i18n}
+          status={activePermissions.canRunDiagnostic ? "success" : "warning"}
+          label={i18n.t("issues.firstRun.permissions.diagnostic")}
+        />
+        {activePermissions.readOnlyReasonCode ? (
+          <div className="read-only-preview">
+            <strong>{i18n.t("issues.firstRun.permissions.readOnly")}</strong>
+            <p>
+              {i18n.t(
+                `issues.firstRun.readOnly.${activePermissions.readOnlyReasonCode}` as TranslationKey,
+              )}
+            </p>
+            <button type="button" disabled>
+              {i18n.t("issues.firstRun.action.disabled")}
+            </button>
+          </div>
+        ) : null}
+      </section>
+
+      <div className="first-run-actions">
+        <button
+          type="button"
+          onClick={saveReadiness}
+          disabled={!activePermissions.canConfigure}
+        >
+          <CheckCircle2 size={16} aria-hidden="true" />
+          {i18n.t("issues.firstRun.action.save")}
+        </button>
+        <button
+          type="button"
+          className="primary-action"
+          onClick={runDiagnostic}
+          disabled={!activePermissions.canRunDiagnostic}
+        >
+          <PlayCircle size={16} aria-hidden="true" />
+          {i18n.t("issues.firstRun.action.run")}
+        </button>
+      </div>
+
+      <p className="status-region" role="status" aria-live="polite">
+        {statusMessage}
+      </p>
+
+      <section aria-labelledby="first-run-timeline-title">
+        <h3 id="first-run-timeline-title">
+          {i18n.t("issues.firstRun.timeline.title")}
+        </h3>
+        <ol className="first-run-timeline">
+          {(didRunDiagnostic
+            ? onboarding.timeline
+            : onboarding.timeline.slice(0, 3)
+          ).map((item) => (
+            <FirstRunTimelineEntry key={item.id} item={item} i18n={i18n} />
+          ))}
+        </ol>
+      </section>
+    </section>
+  );
+}
+
+function FirstRunTimelineEntry({
+  item,
+  i18n,
+}: {
+  item: FirstRunTimelineItem;
+  i18n: I18n;
+}) {
+  return (
+    <li className={`first-run-timeline-item run-${item.severity}`}>
+      {item.status === "failed" ? (
+        <XCircle size={16} aria-hidden="true" />
+      ) : (
+        <span className="run-marker" aria-hidden="true" />
+      )}
+      <div>
+        <strong>{i18n.t(item.messageKey as TranslationKey)}</strong>
+        <p>
+          {i18n.t(statusLabelKey[item.status])} ·{" "}
+          {i18n.t("issues.firstRun.timeline.redacted")}={String(item.redacted)}
+        </p>
+        <small>
+          {i18n.t("issues.firstRun.timeline.refs")}: {item.safeRefs.join(", ")}
+        </small>
+      </div>
     </li>
   );
 }

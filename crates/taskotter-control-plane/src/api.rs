@@ -1268,6 +1268,29 @@ mod tests {
         Ok(())
     }
 
+    fn add_role_binding(
+        state: &AppState,
+        working_group_id: &str,
+        actor: PolicyActorRef,
+        resource_type: Option<&str>,
+        resource_id: Option<&str>,
+        actions: Vec<&str>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        state
+            .store
+            .lock()
+            .map_err(|_| "store lock failed")?
+            .role_bindings
+            .push(RoleBinding {
+                working_group_id: working_group_id.to_owned(),
+                actor,
+                resource_type: resource_type.map(str::to_owned),
+                resource_id: resource_id.map(str::to_owned),
+                actions: actions.into_iter().map(str::to_owned).collect(),
+            });
+        Ok(())
+    }
+
     fn policy_request(
         actor_id: &str,
         action: &str,
@@ -2135,6 +2158,153 @@ mod tests {
         let decision: Value = serde_json::from_slice(&body)?;
         assert_eq!(decision["allowed"], false);
         assert_eq!(decision["reason_code"], "cross_working_group_denied");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn policy_api_fixture_denies_cross_working_group_object_surfaces()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        add_membership(
+            &state,
+            "wg_fake_alpha",
+            "user",
+            "usr_fake_overlap",
+            WorkingGroupRole::Owner,
+        )?;
+        add_membership(
+            &state,
+            "wg_fake_bravo",
+            "user",
+            "usr_fake_overlap",
+            WorkingGroupRole::Viewer,
+        )?;
+        add_membership(
+            &state,
+            "wg_fake_bravo",
+            "user",
+            "usr_fake_bravo_admin",
+            WorkingGroupRole::Admin,
+        )?;
+        add_role_binding(
+            &state,
+            "wg_fake_alpha",
+            PolicyActorRef {
+                r#type: "user".to_owned(),
+                id: "usr_fake_overlap".to_owned(),
+            },
+            Some("artifact"),
+            Some("art_fake_shared_name_only"),
+            vec!["issue.artifact.read"],
+        )?;
+
+        let cases = [
+            ("issue.list", "issue_collection", "issues_fake_bravo"),
+            ("issue.read", "issue", "iss_fake_bravo_private"),
+            ("issue.update", "issue", "iss_fake_bravo_private"),
+            ("issue.delete", "issue", "iss_fake_bravo_private"),
+            ("issue.preview", "issue_preview", "preview_fake_bravo"),
+            ("issue.export", "issue_export", "export_fake_bravo"),
+            (
+                "issue.attachment.read",
+                "attachment",
+                "att_fake_bravo_private",
+            ),
+            (
+                "issue.artifact.read",
+                "artifact",
+                "art_fake_shared_name_only",
+            ),
+        ];
+
+        for (action, resource_type, resource_id) in cases {
+            let request = json!({
+                "working_group_id": "wg_fake_alpha",
+                "actor": {
+                    "type": "user",
+                    "id": "usr_fake_overlap"
+                },
+                "action": action,
+                "resource": {
+                    "type": resource_type,
+                    "id": resource_id,
+                    "working_group_id": "wg_fake_bravo"
+                },
+                "correlation_id": "corr_fake_authz_fixture",
+                "request_id": format!("req_fake_{action}"),
+                "policy_version": "0.1.0",
+                "policy_snapshot_id": "polsnap_fake_authz_fixture"
+            });
+
+            let response = build_router(state.clone())
+                .oneshot(policy_http_request(request)?)
+                .await?;
+
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = to_bytes(response.into_body(), usize::MAX).await?;
+            let decision: Value = serde_json::from_slice(&body)?;
+            let serialized = serde_json::to_string(&decision)?;
+
+            assert_eq!(decision["allowed"], false, "{action} must be denied");
+            assert_eq!(decision["effect"], "deny");
+            assert_eq!(decision["reason_code"], "cross_working_group_denied");
+            assert_eq!(
+                decision["reason"], "request denied by control-plane policy",
+                "{action} denial must stay generic"
+            );
+            assert!(
+                !serialized.contains("bravo_private_internal_title"),
+                "{action} leaked a hidden resource title"
+            );
+            assert!(
+                !serialized.contains("resource_exists"),
+                "{action} leaked hidden existence state"
+            );
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn policy_api_fixture_denies_shared_resource_without_explicit_cross_group_policy()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        add_membership(
+            &state,
+            "wg_fake_alpha",
+            "user",
+            "usr_fake_overlap",
+            WorkingGroupRole::Owner,
+        )?;
+        add_membership(
+            &state,
+            "wg_fake_bravo",
+            "user",
+            "usr_fake_overlap",
+            WorkingGroupRole::Viewer,
+        )?;
+
+        let mut request = policy_request(
+            "usr_fake_overlap",
+            "issue.artifact.read",
+            "artifact",
+            "art_fake_shared_name_only",
+            "wg_fake_alpha",
+        );
+        request["resource"]["working_group_id"] = json!("wg_fake_bravo");
+
+        let response = build_router(state)
+            .oneshot(policy_http_request(request)?)
+            .await?;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await?;
+        let decision: Value = serde_json::from_slice(&body)?;
+
+        assert_eq!(decision["allowed"], false);
+        assert_eq!(decision["effect"], "deny");
+        assert_eq!(decision["reason_code"], "cross_working_group_denied");
+        assert_eq!(decision["reason"], "request denied by control-plane policy");
         Ok(())
     }
 

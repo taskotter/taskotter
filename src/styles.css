@@ -293,6 +293,228 @@ button {
   display: block;
 }
 
+.first-run-panel {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-strong);
+  padding: 14px;
+}
+
+.first-run-heading,
+.first-run-actions,
+.first-run-permissions,
+.permission-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.first-run-heading {
+  justify-content: space-between;
+}
+
+.first-run-heading h2,
+.first-run-heading p,
+.first-run-panel h3 {
+  margin: 0;
+}
+
+.first-run-heading p,
+.first-run-timeline-item p,
+.first-run-timeline-item small,
+.field-stack span,
+.field-error,
+.read-only-preview p {
+  color: var(--text-muted);
+}
+
+.first-run-stepper {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.first-run-stepper li {
+  min-width: 0;
+  min-height: 78px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-muted);
+  padding: 9px;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
+.first-run-stepper li[aria-current="step"] {
+  border-color: var(--accent);
+  box-shadow: inset 0 3px 0 var(--accent);
+}
+
+.first-run-stepper li > span {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.first-run-stepper strong,
+.first-run-stepper small,
+.compact-facts dd,
+.contract-grid dd {
+  overflow-wrap: anywhere;
+}
+
+.first-run-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.first-run-grid > section,
+.first-run-contract,
+.first-run-permissions,
+.error-summary {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-muted);
+  padding: 10px;
+}
+
+.permission-toggle {
+  flex: 1 1 100%;
+  gap: 6px;
+}
+
+.permission-toggle button[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.field-stack {
+  display: grid;
+  gap: 5px;
+}
+
+.field-stack input {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-strong);
+  color: var(--text);
+  padding: 0 10px;
+}
+
+.field-stack input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.field-error {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.error-summary {
+  border-color: var(--danger);
+  background: color-mix(in oklch, var(--danger) 10%, var(--surface-strong));
+}
+
+.error-summary a {
+  color: var(--text);
+}
+
+.compact-facts,
+.contract-grid {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.compact-facts div,
+.contract-grid div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(110px, 0.45fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.compact-facts dt,
+.contract-grid dt {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.compact-facts dd,
+.contract-grid dd {
+  margin: 0;
+}
+
+.contract-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.read-only-preview {
+  flex: 1 1 260px;
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.read-only-preview p {
+  margin: 0;
+}
+
+.first-run-actions {
+  justify-content: flex-end;
+}
+
+.status-region {
+  min-height: 24px;
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.first-run-timeline {
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.first-run-timeline-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 10px;
+  background: var(--surface-muted);
+}
+
+.first-run-timeline-item p {
+  margin: 2px 0;
+}
+
 .setup-complete svg,
 .run-success .run-marker,
 .status-success .status-dot {
@@ -889,6 +1111,10 @@ button {
     display: grid;
   }
 
+  .first-run-stepper {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .review-grid,
   .packet-columns {
     grid-template-columns: 1fr;
@@ -929,6 +1155,17 @@ button {
   }
 
   .setup-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .first-run-stepper,
+  .first-run-grid,
+  .contract-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .compact-facts div,
+  .contract-grid div {
     grid-template-columns: 1fr;
   }
 

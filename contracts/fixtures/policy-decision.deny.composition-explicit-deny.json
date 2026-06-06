@@ -1,0 +1,33 @@
+{
+  "schema_version": "policy-decision@0.1.0",
+  "decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2ED",
+  "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "actor": {
+    "type": "user",
+    "id": "usr_owner"
+  },
+  "action": "issue.read",
+  "resource": {
+    "type": "issue",
+    "id": "iss_fixture"
+  },
+  "effect": "deny",
+  "policy_version": "0.1.0",
+  "policy_snapshot_id": "polsnap_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "reason_code": "legacy_policy_denied",
+  "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+  "provenance": {
+    "source": "control_plane",
+    "evaluated_by": "policy_engine",
+    "policy_bundle_ref": "policy-bundle/taskotter-mvp/0.1.0"
+  },
+  "evaluated_at": "2026-01-01T00:00:00.000Z",
+  "ttl_seconds": 300,
+  "constraints": {
+    "network_zones": ["default"],
+    "tool_scopes": [],
+    "provider_model_ids": [],
+    "max_runtime_seconds": 1800
+  }
+}

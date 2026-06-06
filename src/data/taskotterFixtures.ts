@@ -205,6 +205,93 @@ export const taskotterConsoleFixture: ConsoleData = {
         "Runner setup waits for contract and gateway compatibility fixtures.",
     },
   ],
+  firstRunOnboarding: {
+    workingGroupId: "wg_platform",
+    permissions: {
+      role: "admin",
+      canConfigure: true,
+      canRunDiagnostic: true,
+      workingGroupId: "wg_platform",
+    },
+    permissionFixtures: {
+      member: {
+        role: "member",
+        canConfigure: false,
+        canRunDiagnostic: false,
+        readOnlyReasonCode: "member_read_only",
+        workingGroupId: "wg_platform",
+      },
+    },
+    providerRoute: {
+      providerName: "Gateway policy route",
+      modelName:
+        "fixture-taskotter-policy-check-model-with-long-safe-display-name",
+      credentialRef: "credref_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      credentialStatus: "reference_present",
+    },
+    costUsageDefaults: {
+      monthlyLimitMicros: 0,
+      perRunLimitMicros: 0,
+      usageDeltaMicros: 0,
+      billable: false,
+    },
+    runnerAvailability: {
+      runnerState: "limited",
+      mcpState: "unavailable",
+      blockedReasonCode: "runner_offline",
+    },
+    binding: {
+      agentName: "Frontend Implementation Engineer",
+      skillName: "frontend-engineering",
+    },
+    diagnosticContract: {
+      mode: "fixture",
+      allowPaidCall: false,
+      idempotencyKey: "usage_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      billable: false,
+      usageDeltaMicros: 0,
+      policyDecisionId: "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+      denialReasonCode: "paid_activation_required",
+      blockedReasonCode: "runner_offline",
+    },
+    timeline: [
+      {
+        id: "first-run-scope",
+        messageKey: "issues.firstRun.timeline.scopeConfirmed",
+        status: "completed",
+        severity: "success",
+        safeRefs: ["wg_platform", "audit_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"],
+        redacted: true,
+      },
+      {
+        id: "first-run-policy",
+        messageKey: "issues.firstRun.timeline.policyCheckOnly",
+        status: "waiting_approval",
+        severity: "warning",
+        safeRefs: [
+          "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+          "req_01J9Z4P4BS0M9P2QJ6T8Z6W2EP",
+        ],
+        redacted: true,
+      },
+      {
+        id: "first-run-usage",
+        messageKey: "issues.firstRun.timeline.zeroUsage",
+        status: "completed",
+        severity: "success",
+        safeRefs: ["usage_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"],
+        redacted: true,
+      },
+      {
+        id: "first-run-runner",
+        messageKey: "issues.firstRun.timeline.runnerUnavailable",
+        status: "failed",
+        severity: "danger",
+        safeRefs: ["runr_01J9Z4P4BS0M9P2QJ6T8Z6W2EP"],
+        redacted: true,
+      },
+    ],
+  },
   reviewControl: {
     request: {
       key: "BOG-575",

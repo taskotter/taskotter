@@ -14,6 +14,7 @@ import type {
   SetupStep,
   TaskOtterDataAdapter,
   WorkingGroup,
+  FirstRunOnboarding,
 } from "./contracts";
 import { createI18n, resolveLocalePreferences } from "../i18n";
 import { taskotterConsoleFixture } from "./taskotterFixtures";
@@ -434,6 +435,117 @@ function mapRunSteps(snapshot: GeneratedConsoleSnapshot): RunStep[] {
   ];
 }
 
+function mapFirstRunOnboarding(
+  snapshot: GeneratedConsoleSnapshot,
+): FirstRunOnboarding {
+  const workingGroup = snapshot.workingGroups.data[0];
+  const provider = snapshot.providers.data.find(
+    (candidate) => candidate.working_group_id === workingGroup?.id,
+  );
+  const integration = snapshot.integrations.data.find(
+    (candidate) => candidate.working_group_id === workingGroup?.id,
+  );
+  const deniedAudit = snapshot.auditEvents.data.find(
+    (event) => event.payload.outcome === "denied",
+  );
+  const blockedReasonCode =
+    integration?.status === "active" ? undefined : "runner_offline";
+
+  return {
+    workingGroupId: workingGroup?.id ?? "wg_unavailable",
+    permissions: {
+      role: "admin",
+      canConfigure: true,
+      canRunDiagnostic: true,
+      workingGroupId: workingGroup?.id ?? "wg_unavailable",
+    },
+    permissionFixtures: {
+      member: {
+        role: "member",
+        canConfigure: false,
+        canRunDiagnostic: false,
+        readOnlyReasonCode: "member_read_only",
+        workingGroupId: workingGroup?.id ?? "wg_unavailable",
+      },
+    },
+    providerRoute: {
+      providerName: provider?.name ?? "Generated provider route",
+      modelName: "generated-policy-check-model",
+      credentialRef: "credref_generated_control_plane",
+      credentialStatus:
+        provider?.status === "active" ? "reference_present" : "missing",
+    },
+    costUsageDefaults: {
+      monthlyLimitMicros: 0,
+      perRunLimitMicros: 0,
+      usageDeltaMicros: 0,
+      billable: false,
+    },
+    runnerAvailability: {
+      runnerState: runnerState(
+        workingGroup?.id ?? "",
+        snapshot.integrations.data,
+      ),
+      mcpState: integration?.status === "active" ? "available" : "unavailable",
+      blockedReasonCode,
+    },
+    binding: {
+      agentName: snapshot.agents.data[0]?.name ?? "Generated agent",
+      skillName: snapshot.workflows.data[0]?.name ?? "Generated workflow",
+    },
+    diagnosticContract: {
+      mode: deniedAudit ? "policy_check_only" : "fixture",
+      allowPaidCall: false,
+      idempotencyKey:
+        snapshot.usageEvents.data[0]?.idempotency_key ??
+        "usage_generated_control_plane",
+      billable: false,
+      usageDeltaMicros: 0,
+      policyDecisionId:
+        deniedAudit?.policy_decision_id ??
+        snapshot.usageEvents.data[0]?.policy_decision_id ??
+        "poldec_generated_control_plane",
+      denialReasonCode: deniedAudit ? "policy_denied" : undefined,
+      blockedReasonCode,
+    },
+    timeline: [
+      {
+        id: "generated-scope",
+        messageKey: "issues.firstRun.timeline.scopeConfirmed",
+        status: "completed",
+        severity: "success",
+        safeRefs: [workingGroup?.id ?? "wg_unavailable"],
+        redacted: true,
+      },
+      {
+        id: "generated-policy",
+        messageKey: deniedAudit
+          ? "issues.firstRun.timeline.policyDenied"
+          : "issues.firstRun.timeline.policyCheckOnly",
+        status: deniedAudit ? "waiting_approval" : "completed",
+        severity: deniedAudit ? "warning" : "success",
+        safeRefs: [
+          deniedAudit?.policy_decision_id ??
+            snapshot.usageEvents.data[0]?.policy_decision_id ??
+            "poldec_generated_control_plane",
+        ],
+        redacted: true,
+      },
+      {
+        id: "generated-usage",
+        messageKey: "issues.firstRun.timeline.zeroUsage",
+        status: "completed",
+        severity: "success",
+        safeRefs: [
+          snapshot.usageEvents.data[0]?.idempotency_key ??
+            "usage_generated_control_plane",
+        ],
+        redacted: true,
+      },
+    ],
+  };
+}
+
 function mapReviewControl(
   snapshot: GeneratedConsoleSnapshot,
 ): ReviewControlData {
@@ -678,6 +790,7 @@ export function mapGeneratedConsoleData(
     selectedIssue,
     runSteps: mapRunSteps(snapshot),
     setupSteps: mapSetupSteps(snapshot),
+    firstRunOnboarding: mapFirstRunOnboarding(snapshot),
     reviewControl: mapReviewControl(snapshot),
   };
 }
