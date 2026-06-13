@@ -1888,6 +1888,78 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn ingests_runner_sensitive_snapshot_events() -> Result<(), Box<dyn std::error::Error>> {
+        let state = AppState::default();
+        let snapshot: Value = serde_json::from_str(include_str!(
+            "../../../contracts/fixtures/runner-sensitive-correlation-snapshot.json"
+        ))?;
+
+        let timeline_event = snapshot["timeline_events"][0].clone();
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/operations/timeline/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(timeline_event.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let usage_event = snapshot["usage_events"][0].clone();
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/usage/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(usage_event.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let audit_event = snapshot["operations_audit_events"][0].clone();
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/operations/audit/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(audit_event.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let health_event = snapshot["health_events"][0].clone();
+        let response = build_router(state.clone())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/operations/health/events")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(health_event.to_string()))?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let store = state.store.lock().map_err(|_| "store lock failed")?;
+        assert_eq!(store.run_timeline_events.len(), 1);
+        assert_eq!(store.usage_events.len(), 1);
+        assert_eq!(store.operations_audit_events.len(), 1);
+        assert_eq!(store.operations_health_events.len(), 1);
+        assert_eq!(
+            store.run_timeline_events[0].envelope.correlation_id,
+            "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+        );
+        assert_ne!(
+            store.operations_audit_events[0].envelope.redaction,
+            RedactionClassification::PublicMetadata
+        );
+        drop(store);
+        Ok(())
+    }
+
     async fn post_json_body(uri: &str, body: &str) -> Result<Value, Box<dyn std::error::Error>> {
         let response = build_router(AppState::default())
             .oneshot(

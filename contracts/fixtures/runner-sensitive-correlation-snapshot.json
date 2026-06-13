@@ -1,0 +1,289 @@
+{
+  "schema_version": "runner_sensitive_correlation_snapshot@0.1.0",
+  "roadmap_sources": ["docs/operations-run-surfaces.md", "contracts/README.md"],
+  "redaction_policy": "safe_refs_only",
+  "scenario_coverage": {
+    "dispatch_accepted": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RA",
+    "dispatch_rejected": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RE",
+    "replay_rejected": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RD",
+    "denied_egress": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RD",
+    "credential_use": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RF",
+    "completion_failure": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RB",
+    "quarantine_event": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RG"
+  },
+  "correlation_reconstruction": [
+    {
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+      "run_id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+      "ordered_event_ids": [
+        "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RA",
+        "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RB",
+        "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RC",
+        "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RD",
+        "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RE",
+        "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RF",
+        "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RG"
+      ],
+      "flow": ["request", "policy", "dispatch", "runner_result"]
+    }
+  ],
+  "timeline_events": [
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RA",
+      "type": "operations.timeline.recorded",
+      "envelope": {
+        "version": "0.1.0",
+        "occurred_at": "2026-06-01T04:30:00Z",
+        "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "tenant_id": "tenant_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "run_id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "job_id": "job_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "source": "control_plane",
+        "actor": {
+          "type": "agent",
+          "id": "agent_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+        },
+        "resource": {
+          "type": "run",
+          "id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+        },
+        "redaction": "internal_reference_only"
+      },
+      "stage": "dispatching",
+      "status_reason": "dispatch_accepted",
+      "usage_link": {
+        "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+      }
+    },
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RB",
+      "type": "operations.timeline.recorded",
+      "envelope": {
+        "version": "0.1.0",
+        "occurred_at": "2026-06-01T04:30:02Z",
+        "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "tenant_id": "tenant_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "run_id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "job_id": "job_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "source": "runner",
+        "actor": {
+          "type": "service",
+          "id": "service_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+        },
+        "resource": {
+          "type": "runner",
+          "id": "runner_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+        },
+        "redaction": "redacted_summary"
+      },
+      "stage": "failed",
+      "status_reason": "runner_unavailable",
+      "health_signal": {
+        "health_event_id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RG",
+        "target_kind": "runner",
+        "target_id": "runner_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+      }
+    }
+  ],
+  "usage_events": [
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RC",
+      "type": "usage.gateway_request.recorded",
+      "version": "0.1.0",
+      "occurred_at": "2026-06-01T04:30:01.000Z",
+      "source": "runner",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+      "actor": {
+        "type": "service",
+        "id": "svc_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+      },
+      "resource": {
+        "type": "runner",
+        "id": "runr_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+      "idempotency_key": "usage_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+      "reservation_id": "resv_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+      "status": "failed",
+      "denial_reason": "policy_denied",
+      "payload": {
+        "subject": {
+          "type": "runner_job",
+          "id": "job_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+        },
+        "measurements": {
+          "duration_ms": 450,
+          "tool_invocations": 1,
+          "estimated_cost_micros": 0,
+          "actual_cost_micros": 0,
+          "metering_unit": "local_compute_ms",
+          "runtime_capability": "remote.local_tool_execution"
+        }
+      }
+    }
+  ],
+  "audit_events": [
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RD",
+      "type": "audit.policy_decision.denied",
+      "version": "0.1.0",
+      "occurred_at": "2026-06-01T04:30:01.500Z",
+      "source": "control_plane",
+      "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+      "actor": {
+        "type": "agent",
+        "id": "agt_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+      },
+      "resource": {
+        "type": "runner",
+        "id": "runr_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+      },
+      "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+      "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+      "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+      "payload": {
+        "action": "runner.egress.open",
+        "outcome": "denied",
+        "runtime_capability": "remote.local_tool_execution",
+        "feature_flag": "remote.local_tool_execution.enabled",
+        "approval_ref": "approval_required_before_external_egress"
+      }
+    }
+  ],
+  "operations_audit_events": [
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RE",
+      "type": "operations.audit.recorded",
+      "envelope": {
+        "version": "0.1.0",
+        "occurred_at": "2026-06-01T04:30:01Z",
+        "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "tenant_id": "tenant_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "run_id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "job_id": "job_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "source": "control_plane",
+        "actor": {
+          "type": "agent",
+          "id": "agent_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+        },
+        "resource": {
+          "type": "runner",
+          "id": "runner_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+        },
+        "redaction": "internal_reference_only"
+      },
+      "action": "private_runner_dispatch",
+      "outcome": "denied",
+      "evidence": {
+        "evidence_id": "evidence_01J9Z4P4BS0M9P2QJ6T8Z6W2RE",
+        "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "capability_ref": "cap_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+      },
+      "usage_link": {
+        "usage_event_id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RC",
+        "reservation_id": "resv_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+      }
+    },
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RF",
+      "type": "operations.audit.recorded",
+      "envelope": {
+        "version": "0.1.0",
+        "occurred_at": "2026-06-01T04:30:02Z",
+        "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "tenant_id": "tenant_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "run_id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "job_id": "job_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "source": "runner",
+        "actor": {
+          "type": "service",
+          "id": "service_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+        },
+        "resource": {
+          "type": "runner",
+          "id": "runner_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+        },
+        "redaction": "redacted_summary"
+      },
+      "action": "credential_access",
+      "outcome": "failed",
+      "evidence": {
+        "evidence_id": "evidence_01J9Z4P4BS0M9P2QJ6T8Z6W2RF",
+        "policy_decision_id": "poldec_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "capability_ref": "cap_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "secret_ref": "secret_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "integration_ref": "integration_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+      }
+    }
+  ],
+  "health_events": [
+    {
+      "id": "evt_01J9Z4P4BS0M9P2QJ6T8Z6W2RG",
+      "type": "operations.health.recorded",
+      "envelope": {
+        "version": "0.1.0",
+        "occurred_at": "2026-06-01T04:30:03Z",
+        "working_group_id": "wg_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "tenant_id": "tenant_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "correlation_id": "corr_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "request_id": "req_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "run_id": "run_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "job_id": "job_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+        "source": "runner",
+        "actor": {
+          "type": "service",
+          "id": "service_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+        },
+        "resource": {
+          "type": "runner",
+          "id": "runner_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+        },
+        "redaction": "redacted_summary"
+      },
+      "target": {
+        "kind": "runner",
+        "id": "runner_01J9Z4P4BS0M9P2QJ6T8Z6W2RS"
+      },
+      "availability": "degraded",
+      "capability_snapshot_ref": "cap_01J9Z4P4BS0M9P2QJ6T8Z6W2RS",
+      "last_seen_at": "2026-06-01T04:30:03Z",
+      "degraded_reason": "capability_mismatch"
+    }
+  ],
+  "redaction_assertions": {
+    "forbidden_substrings": [
+      "api_key",
+      "access_token",
+      "authorization:",
+      "bearer ",
+      "client_secret",
+      "cookie:",
+      "password",
+      "private_key",
+      "raw_log",
+      "raw_prompt",
+      "-----BEGIN"
+    ],
+    "allowed_reference_prefixes": [
+      "cap_",
+      "evidence_",
+      "integration_",
+      "poldec_",
+      "req_",
+      "resv_",
+      "secret_"
+    ]
+  }
+}
